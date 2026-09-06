@@ -47,13 +47,14 @@ test('foreign Revolut purchases and refunds retain transaction and account amoun
     const entry = c.api.read()[0]; assert.ok(entry);
     assert.equal(entry.currency,currency);
     const rows = c.api.splitRows(entry);
-    assert.equal(rows[0][5],sourceAmount);
-    assert.equal(rows[0][7],account === 'revg' ? 'EUR' : currency);
-    if (account === 'revg') { assert.equal(rows[0][8],'-111.11'); assert.match(rows[0][3], /Original amount 100.00 CHF/); }
-    assert.equal(Number(rows[0][8]) + Number(rows[1][8]),0);
+    assert.equal(rows[0][7], account === 'revg' ? '-111.11' : '-100.00');
+    assert.equal(rows[0][4],`CURRENCY::${account === 'revg' ? 'EUR' : currency}`);
+    if (account === 'revg') { assert.equal(sourceAmount,'-111.11'); assert.match(rows[0][5], /Original amount 100.00 CHF/); }
+    assert.doesNotMatch(rows[0][5], /capture:|test-id/);
+    assert.equal(Number(rows[0][7]) + Number(rows[1][7]),0);
     const refund = c.api.splitRows({...entry,type:'refund'});
-    assert.equal(Number(refund[0][5]),-Number(rows[0][5]));
-    assert.equal(Number(refund[0][8]) + Number(refund[1][8]),0);
+    assert.equal(Number(refund[0][7]),-Number(rows[0][7]));
+    assert.equal(Number(refund[0][7]) + Number(refund[1][7]),0);
     c.api.loadEntry(entry); assert.equal(c.api.needsFx(),true);
   }
 });
@@ -67,7 +68,8 @@ test('native EUR draft saves without guessing CHF and requires conversion for ex
   c.api.loadEntry({...entry,fxRate:'0.9',chfAmount:'90'});
   c.api.validateAndSave({preventDefault(){}});
   const rows = c.api.splitRows(c.api.read()[0]);
-  assert.equal(rows[0][5],'-100.00'); assert.equal(rows[1][5],'90.00');
+  assert.equal(rows[0][7],'-100.00'); assert.equal(rows[1][7],'100.00');
+  assert.equal(rows[1][8],'0.900000');
 });
 
 test('cross-currency transfers convert both account splits and balance transaction values', () => {
@@ -75,15 +77,15 @@ test('cross-currency transfers convert both account splits and balance transacti
   c.element('fx-rate').value='0.9'; c.element('chf-amount').value='100';
   c.api.validateAndSave({preventDefault(){}});
   const rows = c.api.splitRows(c.api.read()[0]);
-  assert.equal(rows[0][5],'-111.11'); assert.equal(rows[0][6],'EUR');
-  assert.equal(rows[1][5],'100.00'); assert.equal(rows[1][6],'CHF');
-  assert.equal(rows[0][7],'EUR'); assert.equal(rows[1][7],'EUR');
-  assert.equal(rows[0][8],'-111.11'); assert.equal(rows[1][8],'111.11');
-  assert.equal(Number(rows[0][8]) + Number(rows[1][8]),0);
+  assert.equal(rows[0][4],'CURRENCY::EUR'); assert.equal(rows[1][4],'CURRENCY::EUR');
+  assert.equal(rows[0][7],'-111.11'); assert.equal(rows[1][7],'111.11');
+  assert.equal(rows[1][8],'0.900000');
+  assert.equal(Number(rows[0][7]) + Number(rows[1][7]),0);
 });
 
 test('legacy EUR drafts retain their explicit conversion on export', () => {
   const c = capture();
   const rows = c.api.splitRows({id:'old',accountId:'revg',type:'expense',spendingClass:'Necessary',currency:'EUR',amount:'100',fxRate:'0.95',chfAmount:'95'});
-  assert.equal(rows[0][5],'-100.00'); assert.equal(rows[1][5],'95.00');
+  assert.equal(rows[0][7],'-100.00'); assert.equal(rows[1][7],'100.00');
+  assert.equal(rows[1][8],'0.950000');
 });

@@ -6,7 +6,7 @@ Open `index.html` in a modern browser, or publish this folder with a static HTTP
 
 ## Import note
 
-The generated CSV has two balanced split rows for each saved transaction. Review a small export in GnuCash's Transaction CSV Importer and save the resulting column mapping before importing a larger batch.
+The generated CSV follows GnuCash's multi-split transaction import model: one row per split, a shared transaction ID, balanced Deposit values, full Account paths, a `CURRENCY::` transaction commodity, and Price values for cross-currency splits. Enable Multi-split in GnuCash's Transaction CSV Importer, map the columns by their headers, and save the mapping. Review a small import before importing a larger batch.
 
 ## Mobile interface
 
@@ -24,4 +24,4 @@ Native EUR expenses/refunds can be saved without a CHF conversion. To export the
 
 Today and Yesterday highlight the selected date and advance after 500 ms. Selecting another shortcut restarts the timer; manual date editing or navigating away cancels it.
 
-REV-G exports always use EUR as the GnuCash transaction currency. CHF receipt amounts are converted with the explicit rate and retained in the memo; CHF expense split amounts are preserved.
+REV-G exports always use EUR as the GnuCash transaction currency. CHF receipt amounts are converted with the explicit rate and retained in the memo; CHF account amounts are represented through the split Price. Capture IDs are kept only in the Transaction ID column and are never added to a split memo.

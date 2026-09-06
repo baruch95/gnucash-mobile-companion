@@ -135,7 +135,7 @@
       <p id="draft-status" class="status" role="status"></p><div id="entries"><p class="hint">No drafts yet.</p></div>
       <div class="divider"></div>
       <div class="actions"><button type="button" id="export-csv" class="primary">Download CSV</button><button type="button" id="clear-exported">Clear exported</button></div>
-      <p class="hint">The CSV contains two balanced split rows per transaction and retains account paths, currencies, CHF values, rates, and a capture ID.</p>
+      <p class="hint">The CSV contains two balanced rows per transaction, with GnuCash account paths, transaction currency, and prices for cross-currency splits.</p>
     </section>
 
     <section class="card hidden" data-view="settings" aria-label="Settings"><p class="eyebrow">Your setup</p><h2>Settings</h2>
@@ -406,18 +406,22 @@
         };
         const exportCurrency = entry.accountId === "revg" ? "EUR" : currency;
         const exportValue = converted(exportCurrency);
-        const memo = [entry.memo, exportCurrency !== currency ? `Original amount ${amount.toFixed(2)} ${currency}` : "", `capture:${entry.id}`, rate > 0 ? `FX EUR/CHF ${entry.fxRate} (${entry.fxDate}, ${entry.fxSource || "manual"})` : ""].filter(Boolean).join(" · ");
+        const memo = [entry.memo, exportCurrency !== currency ? `Original amount ${amount.toFixed(2)} ${currency}` : "", rate > 0 ? `FX EUR/CHF ${entry.fxRate} (${entry.fxDate}, ${entry.fxSource || "manual"})` : ""].filter(Boolean).join(" · ");
         const sign = entry.type === "refund" ? 1 : -1;
         const first = { account:source.path, amount:sign * converted(sourceCurrency), currency:sourceCurrency, value:sign * exportValue };
         const second = entry.type === "transfer"
           ? { account:destination.path, amount:converted(destination.currency), currency:destination.currency, value:exportValue }
           : { account:entry.spendingClass === "Necessary" ? state.config.necessaryPath : state.config.leisurePath, amount:-sign * converted("CHF"), currency:"CHF", value:-sign * exportValue };
-        return [first, second].map((split) => [entry.id, entry.date, entry.title, memo, split.account, split.amount.toFixed(2), split.currency, exportCurrency, split.value.toFixed(2), entry.fxRate || "", entry.chfAmount ?? "", entry.type, entry.spendingClass || ""]);
+        return [first, second].map((split) => {
+          const splitAmount = Number(split.amount), splitValue = Number(split.value);
+          const price = split.currency === exportCurrency || !splitValue ? "" : Math.abs(splitAmount / splitValue).toFixed(6);
+          return [entry.id, entry.date, entry.title, "", `CURRENCY::${exportCurrency}`, memo, split.account, splitValue.toFixed(2), price];
+        });
       }
       function exportCsv() {
         const pending = state.entries.filter((entry) => !entry.exportedAt);
         if (!pending.length) return setStatus("There are no unexported drafts to download.", "error");
-        const header = ["Transaction ID", "Date", "Description", "Memo", "Account", "Split amount", "Split currency", "Transaction currency", "Transaction value", "EUR to CHF rate", "CHF equivalent", "Capture type", "Spending class"];
+        const header = ["Transaction ID", "Date", "Description", "Notes", "Commodity/Currency", "Memo", "Account", "Deposit", "Price"];
         let rows;
         try { rows = pending.flatMap(splitRows); } catch (error) { return setStatus(error.message, "error"); }
         const csv = [header, ...rows].map((row) => row.map(csvCell).join(",")).join("\r\n") + "\r\n";
