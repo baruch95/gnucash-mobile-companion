@@ -26,6 +26,12 @@ function capture() {
   return {api:context.api, element, configure};
 }
 
+test('hidden quick amount does not block normal form submission', () => {
+  const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
+  assert.match(html, /id="quick-amount"/);
+  assert.doesNotMatch(html, /id="quick-amount"[^>]*\brequired\b/);
+});
+
 test('Revolut currency determines FX step and appears immediately after account', () => {
   const c = capture();
   for (const [id,currency,fx] of [['revg','EUR',false],['revg','CHF',true],['revn2','CHF',false],['revn2','EUR',true]]) {
