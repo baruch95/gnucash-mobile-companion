@@ -16,6 +16,8 @@ The interface uses system fonts and inline styles/scripts, with no new network d
 
 Each exported draft has a **Mark unexported** action. It clears only that draft's export marker so the transaction is included in the next CSV download; the draft itself is unchanged.
 
+Use **Save shortcut** on a draft to add it to Quick transactions on the Capture screen. A shortcut retains the transaction type, category, account, destination, memo, currency, saved amount, and whether a UBS reimbursement should be generated. Selecting it uses today's date and asks only to confirm or edit the prefilled amount. Cross-currency shortcuts additionally require a current exchange rate. Shortcuts can be removed from the Capture screen and are included in JSON backups.
+
 Validation: JavaScript syntax, static HTML/reference checks, and `node --test tests/capture.test.cjs` for currency selection, saved drafts, and balanced CSV splits. Visual checks on a physical phone and Safari remain to be done.
 
 ## Revolut currency selection

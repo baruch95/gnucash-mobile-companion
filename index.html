@@ -46,6 +46,7 @@
     .success-icon { display:grid; place-items:center; width:68px; height:68px; border-radius:50%; background:#dceee9; color:var(--brand); font-size:32px; margin:20px 0 24px; } .empty-state { text-align:center; padding:28px 6px; } .empty-state .type-icon { margin:0 auto 16px; } .empty-state h3 { font-size:20px; letter-spacing:-.03em; } .empty-state p { color:var(--muted); font-size:14px; }
     .bottom-nav { position:fixed; z-index:10; bottom:0; left:50%; transform:translateX(-50%); width:min(100%,620px); display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:4px; padding:10px 16px calc(10px + env(safe-area-inset-bottom)); background:#ffffffed; backdrop-filter:blur(16px); border-top:1px solid var(--line); } .bottom-nav button { border:0; background:transparent; padding:8px; min-height:62px; color:var(--muted); font-size:12px; border-radius:14px; } .bottom-nav button[aria-current="page"] { background:var(--soft); color:var(--brand-dark); } .nav-icon { display:block; font-size:23px; line-height:1.15; font-weight:400; margin-bottom:3px; } .nav-count { font-size:11px; margin-left:3px; }
     .device-note { text-align:center; font-size:12px; color:var(--muted); margin-top:24px; } .quick-dates { display:flex; gap:10px; margin:16px 0; } .quick-dates button { flex:1; }
+    .quick-preset { display:grid; grid-template-columns:minmax(0,1fr) 48px; gap:8px; } .quick-preset > button:first-child { text-align:left; } .quick-preset .danger { font-size:24px; padding:0; }
     @media (max-width:360px) { main { padding-left:16px; padding-right:16px; } .card { padding:18px; } .capture-card { padding:0; } .type-grid button { gap:12px; padding:16px; } .local-status { font-size:11px; } }
     @media (prefers-reduced-motion:reduce) { *,*::before,*::after { scroll-behavior:auto !important; transition:none !important; } }
   </style>
@@ -58,6 +59,7 @@
       <form id="capture-form">
         <div class="progress-heading"><p id="step-progress" class="step-progress" aria-live="polite"></p><span id="capture-context"></span></div><progress id="capture-progress" max="100" value="0" aria-label="Capture progress"></progress>
         <section class="step" data-step="type">
+          <div id="quick-presets-section" class="hidden"><p class="eyebrow">Quick transactions</p><div id="quick-presets" class="account-choices"></div><div class="divider"></div></div>
           <p class="eyebrow">New transaction</p><h3 id="capture-heading">What happened?</h3><p class="step-copy">Keep the details. Get on with your day.</p>
           <div class="type-grid" role="group" aria-label="Transaction type">
             <button type="button" data-type="expense"><span class="type-icon" aria-hidden="true">↗</span><span><strong>Expense</strong><small>Something you paid for</small></span><span class="chevron" aria-hidden="true">›</span></button>
@@ -104,6 +106,16 @@
           <p class="eyebrow">Amount</p><h3>How much?</h3><p id="amount-copy" class="step-copy">Enter the amount.</p>
           <label class="wide">Amount <input id="amount" type="text" inputmode="decimal" autocomplete="off" required placeholder="0.00" /></label>
           <div class="step-actions"><button type="button" data-back>Back</button><button type="button" class="primary" data-next>Continue</button></div>
+        </section>
+        <section class="step hidden" data-step="quick-amount">
+          <p class="eyebrow">Quick transaction</p><h3>Confirm the amount</h3><p id="quick-amount-copy" class="step-copy"></p>
+          <div id="quick-summary" class="review"></div>
+          <label class="wide">Amount <input id="quick-amount" type="text" inputmode="decimal" autocomplete="off" required placeholder="0.00" /></label>
+          <div class="step-actions"><button type="button" id="cancel-quick">Cancel</button><button id="save-quick" class="primary" type="submit">Save draft</button><button id="continue-quick" class="primary hidden" type="button" data-next>Continue</button></div>
+        </section>
+        <section class="step hidden" data-step="quick-review">
+          <p class="eyebrow">Quick transaction</p><h3>Ready to save</h3><p class="step-copy">The exchange rate has been added.</p><div id="quick-review-summary" class="review"></div>
+          <div class="step-actions"><button type="button" data-back>Back</button><button class="primary" type="submit">Save draft</button></div>
         </section>
         <section class="step hidden" data-step="fx">
           <p class="eyebrow">EUR → CHF</p><h3>Confirm the exchange rate</h3><p class="step-copy">Fetch a reference rate, then correct it if the card statement differs.</p>
@@ -191,7 +203,7 @@
         categories: ["Food", "Transport", "Shopping", "Fun", "Health", "Housing", "Work", "Cat"]
       };
       let state = loadState();
-      let transactionCurrency = null, manualFx = false, ubsSplitChoice = null;
+      let transactionCurrency = null, manualFx = false, ubsSplitChoice = null, quickPreset = null;
       let type = null, spendingClass = null, editingId = null, fxSource = "manual", currentStep = "type", customCategoryMode = false;
       const $ = (id) => document.getElementById(id);
       const dateString = (date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
@@ -212,9 +224,9 @@
       function loadState() {
         try {
           const saved = JSON.parse(localStorage.getItem(STORAGE_KEY));
-          if (saved && Array.isArray(saved.entries) && saved.config) return saved;
+          if (saved && Array.isArray(saved.entries) && saved.config) return { ...saved, presets:Array.isArray(saved.presets) ? saved.presets : [] };
         } catch (_) { /* use safe defaults */ }
-        return { config: clone(defaults), entries: [] };
+        return { config: clone(defaults), entries: [], presets:[] };
       }
       function persist() { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
       function uid() { return crypto.randomUUID ? crypto.randomUUID() : `mobile-${Date.now()}-${Math.random().toString(16).slice(2)}`; }
@@ -259,6 +271,12 @@
         $("to-account").value = account(priorTo) ? priorTo : "";
         $("category-options").innerHTML = state.config.categories.map((item) => `<option value="${escapeHtml(item)}"></option>`).join("");
         renderChoiceButtons();
+        renderPresets();
+      }
+      function renderPresets() {
+        const presets = state.presets || [];
+        $("quick-presets-section").classList.toggle("hidden", presets.length === 0);
+        $("quick-presets").innerHTML = presets.map((preset) => `<div class="quick-preset"><button type="button" data-preset="${escapeHtml(preset.id)}"><strong>${escapeHtml(preset.title || "Transfer")}</strong><small>${escapeHtml(account(preset.accountId)?.label || preset.accountId)} · ${escapeHtml(money(preset.amount, preset.currency))}</small></button><button type="button" class="small danger" data-delete-preset="${escapeHtml(preset.id)}" aria-label="Remove ${escapeHtml(preset.title || "Transfer")} shortcut">×</button></div>`).join("");
       }
       function renderChoiceButtons() {
         const selected = $("account").value, selectedTo = $("to-account").value, title = $("title").value.trim();
@@ -287,7 +305,7 @@
         $("entries").innerHTML = sorted.length ? sorted.map((entry) => {
           const amountText = entry.currency === "CHF" ? money(entry.amount, "CHF") : `${money(entry.amount, "EUR")} · ${entry.chfAmount ? money(entry.chfAmount, "CHF") : "CHF rate needed"}`;
           const destination = entry.type === "transfer" ? ` → ${escapeHtml(account(entry.toAccountId)?.label || entry.toAccountId)}` : "";
-          return `<article class="entry"><div><strong>${escapeHtml(entry.title || "Transfer")} <span class="badge">${escapeHtml(entry.type)}</span>${entry.exportedAt ? '<span class="badge">exported</span>' : ""}</strong><small>${escapeHtml(entry.date)} · ${escapeHtml(account(entry.accountId)?.label || entry.accountId)}${destination}${entry.memo ? ` · ${escapeHtml(entry.memo)}` : ""}</small><div class="entry-amount">${escapeHtml(amountText)}</div></div><div class="entry-actions"><button class="small" type="button" data-edit="${escapeHtml(entry.id)}">Edit</button>${entry.exportedAt ? `<button class="small" type="button" data-unexport="${escapeHtml(entry.id)}">Mark unexported</button>` : ""}<button class="small danger" type="button" data-delete="${escapeHtml(entry.id)}">Delete</button></div></article>`;
+          return `<article class="entry"><div><strong>${escapeHtml(entry.title || "Transfer")} <span class="badge">${escapeHtml(entry.type)}</span>${entry.exportedAt ? '<span class="badge">exported</span>' : ""}</strong><small>${escapeHtml(entry.date)} · ${escapeHtml(account(entry.accountId)?.label || entry.accountId)}${destination}${entry.memo ? ` · ${escapeHtml(entry.memo)}` : ""}</small><div class="entry-amount">${escapeHtml(amountText)}</div></div><div class="entry-actions"><button class="small" type="button" data-edit="${escapeHtml(entry.id)}">Edit</button>${!entry.generatedFrom ? `<button class="small" type="button" data-save-preset="${escapeHtml(entry.id)}">Save shortcut</button>` : ""}${entry.exportedAt ? `<button class="small" type="button" data-unexport="${escapeHtml(entry.id)}">Mark unexported</button>` : ""}<button class="small danger" type="button" data-delete="${escapeHtml(entry.id)}">Delete</button></div></article>`;
         }).join("") : '<div class="empty-state"><span class="type-icon" aria-hidden="true">▤</span><h3>A little less to remember.</h3><p>Capture an expense, refund, or transfer.<br>Your drafts will be waiting here.</p><button type="button" data-start-capture class="primary">Capture a transaction</button></div>';
       }
       function updateTypeUI() {
@@ -303,6 +321,7 @@
         updateStepUI();
       }
       function stepsForType() {
+        if (quickPreset) return ["quick-amount", ...(needsFx() ? ["fx", "quick-review"] : [])];
         if (!type) return ["type"];
         const steps = type === "transfer" ? ["type", "account"] : ["type", "class", "category", "account"];
         if (isRevolut()) steps.push("currency");
@@ -323,12 +342,19 @@
         updateDateChoices(); updateCurrencyChoices();
         $("capture-context").textContent = editingId ? "Editing draft" : type ? type[0].toUpperCase() + type.slice(1) : "New entry";
         $("capture-progress").value = currentStep === "done" ? 100 : type ? (stepsForType().indexOf(currentStep) / (stepsForType().length - 1)) * 100 : 0;
-        if (currentStep === "note") renderReview();
+        if (["note", "quick-review"].includes(currentStep)) renderReview();
         if (currentStep === "done") { document.querySelectorAll("[data-step]").forEach((section) => section.classList.toggle("hidden", section.dataset.step !== "done")); $("step-progress").textContent = "Done"; return; }
         const steps = stepsForType(); if (!steps.includes(currentStep)) currentStep = "type";
         document.querySelectorAll("[data-step]").forEach((section) => section.classList.toggle("hidden", section.dataset.step !== currentStep));
         $("step-progress").textContent = type ? `Step ${steps.indexOf(currentStep) + 1} of ${steps.length}` : "Make a quick note";
         if (currentStep === "amount") { $("amount-copy").textContent = `Enter the amount in ${selectedCurrency()}.`; $("amount").focus({ preventScroll:true }); $("amount").select(); }
+        if (currentStep === "quick-amount") {
+          $("quick-amount-copy").textContent = `${quickPreset.title || "Transfer"} · ${selectedCurrency()}`;
+          $("quick-summary").innerHTML = `<dl><div><dt>Account</dt><dd>${escapeHtml(selectedAccount()?.label || "—")}</dd></div><div><dt>Category</dt><dd>${escapeHtml(quickPreset.title || "Transfer")}</dd></div><div><dt>Date</dt><dd>Today</dd></div></dl>`;
+          $("save-quick").classList.toggle("hidden", needsFx()); $("continue-quick").classList.toggle("hidden", !needsFx());
+          $("quick-amount").focus({ preventScroll:true }); $("quick-amount").select();
+        }
+        if (currentStep === "quick-review") $("quick-review-summary").innerHTML = $("review-summary").innerHTML;
         if (currentStep === "ubs-split") {
           const split = ubsSplitDetails();
           $("ubs-split-copy").textContent = `${split.from.label} reimburses ${split.to.label} for the other person's share.`;
@@ -341,7 +367,7 @@
         if (step === "category" && !$("title").value.trim()) { setStatus("Choose a category or add one with Other +.", "error"); return false; }
         if (step === "account" && !selectedAccount()) { setStatus("Choose an account.", "error"); return false; }
         if (step === "to-account" && (!selectedToAccount() || selectedToAccount().id === selectedAccount().id)) { setStatus("Choose a different receiving account.", "error"); return false; }
-        if (step === "amount" && (!number($("amount").value) || number($("amount").value) <= 0)) { setStatus("Enter a positive amount.", "error"); return false; }
+        if (["amount", "quick-amount"].includes(step)) { const amount = number(step === "quick-amount" ? $("quick-amount").value : $("amount").value); if (!amount || amount <= 0) { setStatus("Enter a positive amount.", "error"); return false; } }
         if (step === "fx") { const rate = number($("fx-rate").value), amount = number($("chf-amount").value); if (!rate || rate <= 0 || !amount || amount <= 0) { setStatus("Fetch or enter a EUR → CHF rate and CHF equivalent.", "error"); return false; } }
         setStatus(""); return true;
       }
@@ -380,7 +406,7 @@
       }
       function resetForm() {
         cancelAdvance();
-        transactionCurrency = null; manualFx = false; ubsSplitChoice = null; editingId = null; type = null; spendingClass = null; fxSource = "manual"; currentStep = "type"; customCategoryMode = false;
+        transactionCurrency = null; manualFx = false; ubsSplitChoice = null; quickPreset = null; editingId = null; type = null; spendingClass = null; fxSource = "manual"; currentStep = "type"; customCategoryMode = false;
         $("capture-form").reset(); $("date").value = today(); $("fx-date").value = today(); $("fx-rate").value = "";
         renderOptions(); updateTypeUI(); setStatus(""); $("save-entry").textContent = "Save draft";
       }
@@ -394,7 +420,8 @@
       function validateAndSave(event) {
         event.preventDefault();
         if (currentStep === "note" && canOfferUbsSplit() && ubsSplitChoice === null) { currentStep = "ubs-split"; updateStepUI(); return; }
-        if (!(["note", "ubs-split"].includes(currentStep))) return;
+        if (!(["note", "ubs-split", "quick-amount", "quick-review"].includes(currentStep))) return;
+        if (quickPreset) { $("amount").value = $("quick-amount").value; calculateChf(); }
         const source = selectedAccount(), destination = selectedToAccount(), amount = number($("amount").value), rate = number($("fx-rate").value), chfAmount = number($("chf-amount").value);
         if (!source || !amount || amount <= 0) return setStatus("Enter a positive amount and source account.", "error");
         if (type === "transfer" && (!destination || destination.id === source.id)) return setStatus("Choose a different destination account for the transfer.", "error");
@@ -416,8 +443,19 @@
         }
         if (!state.config.categories.includes(entry.title) && type !== "transfer") state.config.categories.push(entry.title);
         $("saved-copy").textContent = generatedTransfer ? `Saved the expense and a ${money(generatedTransfer.amount, "CHF")} reimbursement transfer.` : entry.currency === "EUR" && entry.type !== "transfer" && !entry.chfAmount ? "Saved on this device. Add a CHF value when you are ready to export." : "Saved on this device and ready for CSV export.";
-        persist(); renderSettings(); renderEntries(); transactionCurrency = null; manualFx = false; ubsSplitChoice = null; editingId = null; type = null; spendingClass = null; fxSource = "manual"; customCategoryMode = false; $("capture-form").reset(); $("date").value = today(); $("fx-date").value = today(); $("fx-rate").value = ""; renderOptions(); currentStep = "done"; updateTypeUI(); setStatus("");
+        persist(); renderSettings(); renderEntries(); transactionCurrency = null; manualFx = false; ubsSplitChoice = null; quickPreset = null; editingId = null; type = null; spendingClass = null; fxSource = "manual"; customCategoryMode = false; $("capture-form").reset(); $("date").value = today(); $("fx-date").value = today(); $("fx-rate").value = ""; renderOptions(); currentStep = "done"; updateTypeUI(); setStatus("");
       }
+      function savePreset(entry) {
+        const generatedTransfer = state.entries.find((item) => item.generatedFrom === entry.id);
+        const preset = { id:uid(), type:entry.type, spendingClass:entry.spendingClass, title:entry.title, memo:entry.memo, accountId:entry.accountId, toAccountId:entry.toAccountId, amount:entry.amount, currency:entry.currency, accountCurrency:entry.accountCurrency || account(entry.accountId)?.currency, ubsSplit:Boolean(generatedTransfer) };
+        state.presets = [...(state.presets || []), preset]; persist(); renderPresets(); setStatus(`${preset.title || "Transfer"} added to Quick transactions.`, "good");
+      }
+      function applyPreset(preset) {
+        resetForm(); quickPreset = preset; type = preset.type; spendingClass = preset.spendingClass; transactionCurrency = preset.currency; ubsSplitChoice = preset.ubsSplit;
+        $("title").value = preset.title || ""; $("memo").value = preset.memo || ""; $("account").value = preset.accountId; $("to-account").value = preset.toAccountId || ""; $("date").value = today(); $("quick-amount").value = preset.amount; $("amount").value = preset.amount;
+        currentStep = "quick-amount"; renderChoiceButtons(); updateFxUI(); updateStepUI();
+      }
+      function deletePreset(id) { state.presets = (state.presets || []).filter((preset) => preset.id !== id); persist(); renderPresets(); }
       async function fetchFx() {
         if (!needsFx()) { setStatus("A rate is required only when EUR is involved.", "error"); return; }
         const targetDate = $("date").value || today();
@@ -518,6 +556,7 @@
       $("account-choices").addEventListener("click", (event) => { const button = event.target.closest("[data-account-choice]"); if (!button) return; if ($("account").value !== button.dataset.accountChoice) clearCurrencyChoice(); $("account").value = button.dataset.accountChoice; renderChoiceButtons(); updateFxUI(); advanceAfterChoice(); });
       $("to-account-choices").addEventListener("click", (event) => { const button = event.target.closest("[data-to-account-choice]"); if (!button) return; $("to-account").value = button.dataset.toAccountChoice; renderChoiceButtons(); updateFxUI(); advanceAfterChoice(); });
       $("capture-form").addEventListener("submit", validateAndSave); $("account").addEventListener("change", updateFxUI); $("to-account").addEventListener("change", updateFxUI); $("amount").addEventListener("input", calculateChf); $("fx-rate").addEventListener("input", () => { fxSource = "manual"; calculateChf(); }); $("date").addEventListener("change", () => { if (!$("fx-date").value) $("fx-date").value = $("date").value; });
+      $("quick-amount").addEventListener("input", () => { $("amount").value = $("quick-amount").value; calculateChf(); });
       document.querySelectorAll("[data-currency]").forEach((button) => button.addEventListener("click", () => {
         if (transactionCurrency !== button.dataset.currency) { $("fx-rate").value = ""; $("chf-amount").value = ""; manualFx = false; fxSource = "manual"; }
         transactionCurrency = button.dataset.currency; updateCurrencyChoices(); updateFxUI(); advanceAfterChoice();
@@ -533,7 +572,9 @@
       $("new-entry").addEventListener("click", resetForm);
       $("backup-data").addEventListener("click", backupData); $("restore-data").addEventListener("click", () => $("restore-file").click()); $("restore-file").addEventListener("change", (event) => restoreData(event.target.files?.[0]));
       $("clear-exported").addEventListener("click", () => { const count = state.entries.filter((item) => item.exportedAt).length; if (!count) return setStatus("There are no exported drafts to clear.", "error"); if (confirm(`Remove ${count} exported draft${count === 1 ? "" : "s"} from this device?`)) { state.entries = state.entries.filter((item) => !item.exportedAt); persist(); renderEntries(); setStatus("Exported drafts removed from this device.", "good"); } });
-      $("entries").addEventListener("click", (event) => { const edit = event.target.closest("[data-edit]"), unexport = event.target.closest("[data-unexport]"), remove = event.target.closest("[data-delete]"); if (edit) loadEntry(state.entries.find((item) => item.id === edit.dataset.edit)); if (unexport) markUnexported(unexport.dataset.unexport); if (remove) { const entry = state.entries.find((item) => item.id === remove.dataset.delete); if (entry && confirm(`Delete ${entry.title}?`)) { state.entries = state.entries.filter((item) => item.id !== entry.id); persist(); renderEntries(); if (editingId === entry.id) resetForm(); } } });
+      $("entries").addEventListener("click", (event) => { const edit = event.target.closest("[data-edit]"), save = event.target.closest("[data-save-preset]"), unexport = event.target.closest("[data-unexport]"), remove = event.target.closest("[data-delete]"); if (edit) loadEntry(state.entries.find((item) => item.id === edit.dataset.edit)); if (save) savePreset(state.entries.find((item) => item.id === save.dataset.savePreset)); if (unexport) markUnexported(unexport.dataset.unexport); if (remove) { const entry = state.entries.find((item) => item.id === remove.dataset.delete); if (entry && confirm(`Delete ${entry.title}?`)) { state.entries = state.entries.filter((item) => item.id !== entry.id); persist(); renderEntries(); if (editingId === entry.id) resetForm(); } } });
+      $("quick-presets").addEventListener("click", (event) => { const use = event.target.closest("[data-preset]"), remove = event.target.closest("[data-delete-preset]"); if (remove) return deletePreset(remove.dataset.deletePreset); if (use) applyPreset((state.presets || []).find((preset) => preset.id === use.dataset.preset)); });
+      $("cancel-quick").addEventListener("click", resetForm);
       document.querySelectorAll("[data-nav]").forEach((button) => button.addEventListener("click", () => showView(button.dataset.nav)));
       document.querySelectorAll("[data-date-offset]").forEach((button) => button.addEventListener("click", () => { const date = new Date(); date.setDate(date.getDate() + Number(button.dataset.dateOffset)); $("date").value = dateString(date); updateDateChoices(); advanceAfterChoice(); }));
       $("date").addEventListener("focus", cancelAdvance);

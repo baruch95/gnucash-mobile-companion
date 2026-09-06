@@ -18,7 +18,7 @@ function capture() {
     window:{scrollTo(){}}, clearTimeout(){}, setTimeout(){}, console,
   });
   const end = script.indexOf('      document.querySelectorAll("[data-type]").forEach((button) => button.addEventListener');
-  vm.runInContext(script.slice(0, end) + '\n globalThis.api = { splitRows, needsFx, stepsForType, validateAndSave, loadEntry, resetForm, markUnexported, ubsSplitDetails, chooseUbs:(value)=>{ubsSplitChoice=value;currentStep="ubs-split"}, setShares:(nico,gio)=>{state.config.nicoSharePercent=nico;state.config.gioSharePercent=gio}, read:()=>state.entries }; })();', context);
+  vm.runInContext(script.slice(0, end) + '\n globalThis.api = { splitRows, needsFx, stepsForType, validateAndSave, loadEntry, resetForm, markUnexported, savePreset, applyPreset, deletePreset, ubsSplitDetails, chooseUbs:(value)=>{ubsSplitChoice=value;currentStep="ubs-split"}, setShares:(nico,gio)=>{state.config.nicoSharePercent=nico;state.config.gioSharePercent=gio}, setQuickAmount:(value)=>{$("quick-amount").value=value}, read:()=>state.entries, presets:()=>state.presets, step:()=>currentStep }; })();', context);
   const configure = (accountId, currency, type = 'expense', to = '') => {
     // Set through loadEntry so the same restoration path used by real saved drafts is exercised.
     context.api.loadEntry({id:'test-id',type,spendingClass:'Necessary',title:'Food',date:'2026-09-06',amount:'100',currency,accountId,toAccountId:to,fxRate:null,chfAmount:currency === 'CHF' ? '100' : null});
@@ -120,4 +120,31 @@ test('marking an exported draft unexported preserves it for the next CSV', () =>
   const entry = c.api.read()[0]; entry.exportedAt = '2026-09-06T12:00:00Z';
   c.api.markUnexported(entry.id);
   assert.equal(c.api.read().length,1); assert.equal(c.api.read()[0].exportedAt,null);
+});
+
+test('saved transaction shortcut restores details and asks only for amount', () => {
+  const c = capture(); c.configure('cumulus','CHF'); c.element('memo').value='Weekly shop';
+  c.api.validateAndSave({preventDefault(){}});
+  const original = c.api.read()[0]; c.api.savePreset(original);
+  const preset = c.api.presets()[0];
+  assert.equal(preset.amount,'100.00'); assert.equal(preset.memo,'Weekly shop');
+  c.api.applyPreset(preset);
+  assert.equal(c.api.step(),'quick-amount'); assert.deepEqual(Array.from(c.api.stepsForType()),['quick-amount']);
+  assert.equal(c.element('quick-amount').value,'100.00');
+  c.api.setQuickAmount('125,50'); c.api.validateAndSave({preventDefault(){}});
+  assert.equal(c.api.read()[1].amount,'125.50'); assert.equal(c.api.read()[1].memo,'Weekly shop');
+});
+
+test('UBS shortcut remembers whether to generate the configured split', () => {
+  const c = capture(); c.configure('ubsg','CHF'); c.api.chooseUbs(true); c.api.validateAndSave({preventDefault(){}});
+  c.api.savePreset(c.api.read()[0]); const preset = c.api.presets()[0]; assert.equal(preset.ubsSplit,true);
+  c.api.applyPreset(preset); c.api.setQuickAmount('200'); c.api.validateAndSave({preventDefault(){}});
+  const newExpense = c.api.read()[2], transfer = c.api.read()[3];
+  assert.equal(transfer.generatedFrom,newExpense.id); assert.equal(transfer.amount,'86.00');
+});
+
+test('quick transaction shortcut can be removed without changing drafts', () => {
+  const c = capture(); c.configure('cumulus','CHF'); c.api.validateAndSave({preventDefault(){}}); c.api.savePreset(c.api.read()[0]);
+  c.api.deletePreset(c.api.presets()[0].id);
+  assert.equal(c.api.presets().length,0); assert.equal(c.api.read().length,1);
 });
