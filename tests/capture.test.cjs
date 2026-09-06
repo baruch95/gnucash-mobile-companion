@@ -40,6 +40,13 @@ test('quick transaction launcher is placed below the three transaction choices',
   assert.match(html.slice(launcher, launcher + 180), /Quick transaction/);
 });
 
+test('quick transaction launcher opens a dedicated list with one preset container', () => {
+  const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
+  assert.match(html, /data-step="quick-list"/);
+  assert.equal((html.match(/id="quick-presets"/g) || []).length, 1);
+  assert.match(html, /Math\.max\(1, progressSteps\.length - 1\)/);
+});
+
 test('Revolut currency determines FX step and appears immediately after account', () => {
   const c = capture();
   for (const [id,currency,fx] of [['revg','EUR',false],['revg','CHF',true],['revn2','CHF',false],['revn2','EUR',true]]) {

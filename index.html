@@ -60,7 +60,6 @@
       <form id="capture-form">
         <div class="progress-heading"><p id="step-progress" class="step-progress" aria-live="polite"></p><span id="capture-context"></span></div><progress id="capture-progress" max="100" value="0" aria-label="Capture progress"></progress>
         <section class="step" data-step="type">
-          <div id="quick-presets-section" class="hidden"><p class="eyebrow">Quick transactions</p><div id="quick-presets" class="account-choices"></div><div class="divider"></div></div>
           <p class="eyebrow">New transaction</p><h3 id="capture-heading">What happened?</h3><p class="step-copy">Keep the details. Get on with your day.</p>
           <div class="type-grid" role="group" aria-label="Transaction type">
             <button type="button" data-type="expense"><span class="type-icon" aria-hidden="true">↗</span><span><strong>Expense</strong><small>Something you paid for</small></span><span class="chevron" aria-hidden="true">›</span></button>
@@ -68,6 +67,11 @@
             <button type="button" data-type="transfer"><span class="type-icon" aria-hidden="true">⇄</span><span><strong>Transfer</strong><small>Between your accounts</small></span><span class="chevron" aria-hidden="true">›</span></button>
           </div>
           <button type="button" id="quick-toggle" class="quick-toggle" aria-expanded="false">Quick transaction</button>
+        </section>
+        <section class="step hidden" data-step="quick-list">
+          <p class="eyebrow">Saved templates</p><h3>Quick transactions</h3><p class="step-copy">Choose a template, then confirm its amount.</p>
+          <div id="quick-presets" class="account-choices"></div>
+          <div class="step-actions"><button type="button" data-back>Back</button></div>
         </section>
         <section class="step hidden" data-step="class">
           <p class="eyebrow">Spending class</p><h3>Necessary or Leisure?</h3><p class="step-copy">Tap one to continue.</p>
@@ -277,10 +281,7 @@
       }
       function renderPresets() {
         const presets = state.presets || [];
-        $("quick-presets-section").classList.toggle("hidden", !quickOpen);
         $("quick-presets").innerHTML = presets.length ? presets.map((preset) => `<div class="quick-preset"><button type="button" data-preset="${escapeHtml(preset.id)}"><strong>${escapeHtml(preset.title || "Transfer")}</strong><small>${escapeHtml(account(preset.accountId)?.label || preset.accountId)} · ${escapeHtml(money(preset.amount, preset.currency))}</small></button><button type="button" class="small danger" data-delete-preset="${escapeHtml(preset.id)}" aria-label="Remove ${escapeHtml(preset.title || "Transfer")} shortcut">×</button></div>`).join("") : '<p class="hint">Save a draft as a shortcut from Drafts first.</p>';
-        $("quick-toggle").textContent = quickOpen ? "Hide quick transactions" : "Quick transaction";
-        $("quick-toggle").setAttribute("aria-expanded", String(quickOpen));
       }
       function renderChoiceButtons() {
         const selected = $("account").value, selectedTo = $("to-account").value, title = $("title").value.trim();
@@ -325,6 +326,7 @@
         updateStepUI();
       }
       function stepsForType() {
+        if (quickOpen && !quickPreset) return ["quick-list"];
         if (quickPreset) return ["quick-amount", ...(needsFx() ? ["fx", "quick-review"] : [])];
         if (!type) return ["type"];
         const steps = type === "transfer" ? ["type", "account"] : ["type", "class", "category", "account"];
@@ -345,7 +347,8 @@
       function updateStepUI() {
         updateDateChoices(); updateCurrencyChoices();
         $("capture-context").textContent = editingId ? "Editing draft" : type ? type[0].toUpperCase() + type.slice(1) : "New entry";
-        $("capture-progress").value = currentStep === "done" ? 100 : type ? (stepsForType().indexOf(currentStep) / (stepsForType().length - 1)) * 100 : 0;
+        const progressSteps = stepsForType();
+        $("capture-progress").value = currentStep === "done" ? 100 : type ? (progressSteps.indexOf(currentStep) / Math.max(1, progressSteps.length - 1)) * 100 : 0;
         if (["note", "quick-review"].includes(currentStep)) renderReview();
         if (currentStep === "done") { document.querySelectorAll("[data-step]").forEach((section) => section.classList.toggle("hidden", section.dataset.step !== "done")); $("step-progress").textContent = "Done"; return; }
         const steps = stepsForType(); if (!steps.includes(currentStep)) currentStep = "type";
@@ -387,6 +390,7 @@
       }
       function moveStep(direction) {
         cancelAdvance();
+        if (currentStep === "quick-list" && direction < 0) { quickOpen = false; currentStep = "type"; updateStepUI(); return; }
         const steps = stepsForType(), index = steps.indexOf(currentStep);
         if (direction > 0 && !stepIsValid(currentStep)) return;
         currentStep = steps[Math.max(0, Math.min(steps.length - 1, index + direction))]; updateStepUI(); window.scrollTo({ top:0, behavior:"smooth" });
@@ -455,12 +459,14 @@
         state.presets = [...(state.presets || []), preset]; persist(); renderPresets(); setStatus(`${preset.title || "Transfer"} added to Quick transactions.`, "good");
       }
       function applyPreset(preset) {
+        if (!preset) return setStatus("That quick transaction is no longer available.", "error");
+        cancelAdvance();
         resetForm(); quickOpen = false; quickPreset = preset; type = preset.type; spendingClass = preset.spendingClass; transactionCurrency = preset.currency; ubsSplitChoice = preset.ubsSplit;
         $("title").value = preset.title || ""; $("memo").value = preset.memo || ""; $("account").value = preset.accountId; $("to-account").value = preset.toAccountId || ""; $("date").value = today(); $("quick-amount").value = preset.amount; $("amount").value = preset.amount;
         currentStep = "quick-amount"; renderChoiceButtons(); updateFxUI(); updateStepUI();
       }
       function deletePreset(id) { state.presets = (state.presets || []).filter((preset) => preset.id !== id); persist(); renderPresets(); }
-      function toggleQuickPresets() { quickOpen = !quickOpen; renderPresets(); }
+      function toggleQuickPresets() { cancelAdvance(); quickOpen = true; quickPreset = null; currentStep = "quick-list"; renderPresets(); updateStepUI(); }
       async function fetchFx() {
         if (!needsFx()) { setStatus("A rate is required only when EUR is involved.", "error"); return; }
         const targetDate = $("date").value || today();
@@ -581,7 +587,10 @@
       $("quick-presets").addEventListener("click", (event) => { const use = event.target.closest("[data-preset]"), remove = event.target.closest("[data-delete-preset]"); if (remove) return deletePreset(remove.dataset.deletePreset); if (use) applyPreset((state.presets || []).find((preset) => preset.id === use.dataset.preset)); });
       $("quick-toggle").addEventListener("click", toggleQuickPresets);
       $("cancel-quick").addEventListener("click", resetForm);
-      document.querySelectorAll("[data-nav]").forEach((button) => button.addEventListener("click", () => showView(button.dataset.nav)));
+      document.querySelectorAll("[data-nav]").forEach((button) => button.addEventListener("click", () => {
+        if (button.dataset.nav === "capture" && currentStep === "done") resetForm();
+        showView(button.dataset.nav);
+      }));
       document.querySelectorAll("[data-date-offset]").forEach((button) => button.addEventListener("click", () => { const date = new Date(); date.setDate(date.getDate() + Number(button.dataset.dateOffset)); $("date").value = dateString(date); updateDateChoices(); advanceAfterChoice(); }));
       $("date").addEventListener("focus", cancelAdvance);
       $("date").addEventListener("input", () => { cancelAdvance(); updateDateChoices(); });
