@@ -24,6 +24,8 @@
     .entry { border-top:1px solid var(--line); padding:12px 0; display:grid; grid-template-columns:1fr auto; gap:8px; } .entry:first-of-type { border-top:0; padding-top:0; } .entry strong { display:block; } .entry small { color:var(--muted); display:block; margin-top:2px; } .entry-actions { display:flex; gap:6px; align-items:start; } .badge { display:inline-block; padding:2px 7px; border-radius:999px; background:var(--soft); color:var(--brand-dark); font-size:10px; font-weight:800; margin-left:5px; text-transform:uppercase; }
     details summary { cursor:pointer; color:var(--brand-dark); font-weight:750; } .settings { margin-top:12px; } .account-setting { display:grid; grid-template-columns:104px 1fr 54px; gap:7px; align-items:end; margin-top:8px; } .account-setting input, .account-setting select { margin-top:0; min-width:0; }
     .actions { display:flex; gap:8px; flex-wrap:wrap; } .actions button { flex:1 1 150px; } code { background:#f0f3f1; border-radius:4px; padding:1px 4px; }
+    .step-progress { color:var(--muted); font-size:12px; font-weight:750; margin:0 0 12px; } .step { min-height:295px; } .step h3 { font-size:22px; letter-spacing:-.03em; margin:0 0 7px; } .step-copy { color:var(--muted); font-size:14px; margin:0 0 16px; }
+    .step-actions { display:flex; gap:8px; margin-top:20px; } .step-actions button { flex:1; } .account-choices, .category-choices { display:grid; gap:8px; } .account-choices { grid-template-columns:repeat(2,1fr); } .category-choices { grid-template-columns:repeat(3,1fr); } .account-choices button { text-align:left; min-height:58px; } .account-choices button small { display:block; opacity:.76; margin-top:2px; font-weight:600; } .category-choices button { min-height:48px; }
     @media (max-width:420px) { main { padding-left:12px; padding-right:12px; } .choice-grid.accounts { grid-template-columns:repeat(2,1fr); } .account-setting { grid-template-columns:85px 1fr 52px; } }
   </style>
 </head>
@@ -32,49 +34,50 @@
     <header><h1>Capture</h1><p>Private local drafts for your GnuCash import.</p></header>
 
     <section class="card" aria-labelledby="capture-heading">
-      <p class="eyebrow">New transaction</p><h2 id="capture-heading">What happened?</h2>
-      <div class="type-grid" role="group" aria-label="Transaction type">
-        <button type="button" class="selected" data-type="expense">Expense</button>
-        <button type="button" data-type="refund">Refund</button>
-        <button type="button" data-type="transfer">Transfer</button>
-      </div>
-
       <form id="capture-form">
-        <div id="class-section">
-          <p class="eyebrow" style="margin-top:16px">Spending class</p>
-          <div class="choice-grid" role="group" aria-label="Spending class">
-            <button type="button" class="selected" data-class="Necessary">Necessary</button>
-            <button type="button" data-class="Leisure">Leisure</button>
+        <p id="step-progress" class="step-progress"></p>
+        <section class="step" data-step="type">
+          <p class="eyebrow">New transaction</p><h3 id="capture-heading">What happened?</h3><p class="step-copy">Choose the kind of entry first.</p>
+          <div class="type-grid" role="group" aria-label="Transaction type">
+            <button type="button" class="selected" data-type="expense">Expense</button>
+            <button type="button" data-type="refund">Refund</button>
+            <button type="button" data-type="transfer">Transfer</button>
           </div>
-        </div>
-        <div class="form-grid">
-          <label class="wide" id="title-label">Category / title
-            <input id="title" list="category-options" autocomplete="off" required placeholder="Food, Transport, or a custom title" />
-            <datalist id="category-options"></datalist>
-          </label>
-          <label>Date <input id="date" type="date" required /></label>
-          <label>Amount <input id="amount" type="number" min="0.01" step="0.01" inputmode="decimal" required placeholder="0.00" /></label>
-          <label id="account-label" class="wide">Paid from
-            <select id="account" required></select>
-          </label>
-          <label id="to-account-label" class="wide hidden">Received to
-            <select id="to-account"></select>
-          </label>
-          <label class="wide">Detail / merchant <input id="memo" autocomplete="off" placeholder="Optional — saved as the split memo" /></label>
-        </div>
-        <div id="fx-panel" class="hidden">
-          <div class="divider"></div>
-          <p class="eyebrow">EUR → CHF</p>
+          <div class="step-actions"><button type="button" class="primary" data-next>Continue</button></div>
+        </section>
+        <section class="step hidden" data-step="category">
+          <p class="eyebrow">Class and category</p><h3 id="category-heading">What was it for?</h3><p class="step-copy">Choose the spending class, then tap a category.</p>
+          <div id="class-section" class="choice-grid" role="group" aria-label="Spending class"><button type="button" class="selected" data-class="Necessary">Necessary</button><button type="button" data-class="Leisure">Leisure</button></div>
+          <p class="eyebrow" style="margin-top:18px">Category</p><div id="category-choices" class="category-choices" role="group" aria-label="Category choices"></div>
+          <div id="custom-category" class="hidden"><label class="wide">Your custom category<input id="title" autocomplete="off" placeholder="Enter a new category" /></label><button type="button" id="add-category" class="primary">Add and use this category</button></div>
+          <datalist id="category-options"></datalist>
+          <div class="step-actions"><button type="button" data-back>Back</button><button type="button" class="primary" data-next>Continue</button></div>
+        </section>
+        <section class="step hidden" data-step="account">
+          <p class="eyebrow">Account</p><h3 id="account-heading">How was it paid?</h3><p class="step-copy" id="account-copy">Tap the account used for this entry.</p>
+          <select id="account" class="hidden" required></select><select id="to-account" class="hidden"></select>
+          <div id="account-choices" class="account-choices" role="group" aria-label="Account choices"></div>
+          <div id="to-account-section" class="hidden"><p class="eyebrow" style="margin-top:18px">To account</p><div id="to-account-choices" class="account-choices" role="group" aria-label="Destination account choices"></div></div>
+          <div class="step-actions"><button type="button" data-back>Back</button><button type="button" class="primary" data-next>Continue</button></div>
+        </section>
+        <section class="step hidden" data-step="details">
+          <p class="eyebrow">Amount and detail</p><h3>Almost done</h3><p class="step-copy">Confirm the amount and optional merchant note.</p>
+          <div class="form-grid" style="margin-top:0">
+            <label>Date <input id="date" type="date" required /></label>
+            <label>Amount <input id="amount" type="number" min="0.01" step="0.01" inputmode="decimal" required placeholder="0.00" /></label>
+            <label class="wide">Detail / merchant <input id="memo" autocomplete="off" placeholder="Optional — saved as the split memo" /></label>
+          </div>
+          <div id="fx-panel" class="hidden"><div class="divider"></div><p class="eyebrow">EUR → CHF</p>
           <div class="form-grid" style="margin-top:0">
             <label>Rate <input id="fx-rate" type="number" min="0.000001" step="0.000001" inputmode="decimal" placeholder="Fetch or enter" /></label>
             <label>Rate date <input id="fx-date" type="date" /></label>
             <label class="wide">CHF equivalent <input id="chf-amount" type="number" min="0.01" step="0.01" inputmode="decimal" placeholder="Calculated from rate" /></label>
           </div>
           <div class="actions" style="margin-top:9px"><button type="button" id="fetch-fx">Fetch rate</button></div>
-          <p id="fx-status" class="hint">Rates come from Frankfurter and can always be corrected to match the card statement.</p>
-        </div>
+          <p id="fx-status" class="hint">Rates come from Frankfurter and can always be corrected to match the card statement.</p></div>
+          <div class="step-actions"><button type="button" data-back>Back</button><button id="save-entry" class="primary" type="submit">Save draft</button></div>
+        </section>
         <p id="form-status" class="status" role="status"></p>
-        <button id="save-entry" class="primary" type="submit">Save draft</button>
       </form>
     </section>
 
@@ -116,7 +119,7 @@
         categories: ["Food", "Transport", "Shopping", "Fun", "Health", "Housing", "Work", "Cat"]
       };
       let state = loadState();
-      let type = "expense", spendingClass = "Necessary", editingId = null, fxSource = "manual";
+      let type = "expense", spendingClass = "Necessary", editingId = null, fxSource = "manual", currentStep = "type", customCategoryMode = false;
       const $ = (id) => document.getElementById(id);
       const today = () => new Date().toISOString().slice(0, 10);
 
@@ -146,6 +149,15 @@
         $("account").value = account(prior) ? prior : state.config.accounts[0].id;
         $("to-account").value = account(priorTo) ? priorTo : state.config.accounts[1].id;
         $("category-options").innerHTML = state.config.categories.map((item) => `<option value="${escapeHtml(item)}"></option>`).join("");
+        renderChoiceButtons();
+      }
+      function renderChoiceButtons() {
+        const selected = $("account").value, selectedTo = $("to-account").value, title = $("title").value.trim();
+        const accountButton = (item, chosen, attribute) => `<button type="button" data-${attribute}="${escapeHtml(item.id)}" class="${chosen === item.id ? "selected" : ""}"><strong>${escapeHtml(item.label)}</strong><small>${item.currency}</small></button>`;
+        $("account-choices").innerHTML = state.config.accounts.map((item) => accountButton(item, selected, "account-choice")).join("");
+        $("to-account-choices").innerHTML = state.config.accounts.map((item) => accountButton(item, selectedTo, "to-account-choice")).join("");
+        $("category-choices").innerHTML = [...state.config.categories.map((item) => `<button type="button" data-category="${escapeHtml(item)}" class="${title === item ? "selected" : ""}">${escapeHtml(item)}</button>`), `<button type="button" data-category="other" class="${title && !state.config.categories.includes(title) ? "selected" : ""}">Other +</button>`].join("");
+        $("custom-category").classList.toggle("hidden", !(customCategoryMode || (title && !state.config.categories.includes(title))));
       }
       function renderSettings() {
         $("account-settings").innerHTML = state.config.accounts.map((item) => `<div class="account-setting"><input data-setting-label="${escapeHtml(item.id)}" value="${escapeHtml(item.label)}" aria-label="${escapeHtml(item.label)} shortcut" /><input data-setting-path="${escapeHtml(item.id)}" value="${escapeHtml(item.path)}" aria-label="${escapeHtml(item.label)} account path" /><select data-setting-currency="${escapeHtml(item.id)}" aria-label="${escapeHtml(item.label)} currency"><option value="CHF" ${item.currency === "CHF" ? "selected" : ""}>CHF</option><option value="EUR" ${item.currency === "EUR" ? "selected" : ""}>EUR</option></select></div>`).join("");
@@ -167,12 +179,30 @@
         document.querySelectorAll("[data-class]").forEach((button) => button.classList.toggle("selected", button.dataset.class === spendingClass));
         const transfer = type === "transfer";
         $("class-section").classList.toggle("hidden", transfer);
-        $("title-label").classList.toggle("hidden", transfer);
         $("title").required = !transfer;
-        $("to-account-label").classList.toggle("hidden", !transfer);
-        $("account-label").firstChild.textContent = transfer ? "Transfer from" : type === "refund" ? "Received to" : "Paid from";
-        $("title-label").firstChild.textContent = type === "refund" ? "Original category / title" : "Category / title";
+        $("to-account-section").classList.toggle("hidden", !transfer);
+        $("category-heading").textContent = type === "refund" ? "What is being refunded?" : "What was it for?";
+        $("account-heading").textContent = transfer ? "Move money from" : type === "refund" ? "Where did it return to?" : "How was it paid?";
+        $("account-copy").textContent = transfer ? "Choose both accounts for this internal transfer." : "Tap the account used for this entry.";
+        renderChoiceButtons();
         updateFxUI();
+        updateStepUI();
+      }
+      function stepsForType() { return type === "transfer" ? ["type", "account", "details"] : ["type", "category", "account", "details"]; }
+      function updateStepUI() {
+        const steps = stepsForType(); if (!steps.includes(currentStep)) currentStep = "type";
+        document.querySelectorAll("[data-step]").forEach((section) => section.classList.toggle("hidden", section.dataset.step !== currentStep));
+        $("step-progress").textContent = `Step ${steps.indexOf(currentStep) + 1} of ${steps.length}`;
+      }
+      function stepIsValid(step) {
+        if (step === "category" && !$("title").value.trim()) { setStatus("Choose a category or add one with Other +.", "error"); return false; }
+        if (step === "account") { const source = selectedAccount(), destination = selectedToAccount(); if (!source || (type === "transfer" && (!destination || source.id === destination.id))) { setStatus(type === "transfer" ? "Choose two different accounts." : "Choose an account.", "error"); return false; } }
+        setStatus(""); return true;
+      }
+      function moveStep(direction) {
+        const steps = stepsForType(), index = steps.indexOf(currentStep);
+        if (direction > 0 && !stepIsValid(currentStep)) return;
+        currentStep = steps[Math.max(0, Math.min(steps.length - 1, index + direction))]; updateStepUI(); window.scrollTo({ top:0, behavior:"smooth" });
       }
       function needsFx() {
         if (selectedCurrency() === "EUR") return true;
@@ -190,7 +220,7 @@
         if (amount && selectedCurrency() === "CHF") $("chf-amount").value = amount.toFixed(2);
       }
       function resetForm() {
-        editingId = null; type = "expense"; spendingClass = "Necessary"; fxSource = "manual";
+        editingId = null; type = "expense"; spendingClass = "Necessary"; fxSource = "manual"; currentStep = "type"; customCategoryMode = false;
         $("capture-form").reset(); $("date").value = today(); $("fx-date").value = today(); $("fx-rate").value = "";
         renderOptions(); updateTypeUI(); setStatus(""); $("save-entry").textContent = "Save draft";
       }
@@ -198,7 +228,7 @@
         editingId = entry.id; type = entry.type; spendingClass = entry.spendingClass || "Necessary";
         renderOptions(); $("date").value = entry.date; $("title").value = entry.title || ""; $("memo").value = entry.memo || ""; $("amount").value = entry.amount; $("account").value = entry.accountId; $("to-account").value = entry.toAccountId || state.config.accounts[0].id;
         $("fx-rate").value = entry.fxRate || ""; $("fx-date").value = entry.fxDate || entry.date; $("chf-amount").value = entry.chfAmount || ""; fxSource = entry.fxSource || "manual";
-        updateTypeUI(); $("save-entry").textContent = "Update draft"; setStatus("Editing draft. Save to keep your changes.", "good"); window.scrollTo({ top:0, behavior:"smooth" });
+        currentStep = "details"; customCategoryMode = Boolean(entry.title && !state.config.categories.includes(entry.title)); updateTypeUI(); $("save-entry").textContent = "Update draft"; setStatus("Editing draft. Save to keep your changes.", "good"); window.scrollTo({ top:0, behavior:"smooth" });
       }
       function validateAndSave(event) {
         event.preventDefault();
@@ -270,6 +300,12 @@
       }
       document.querySelectorAll("[data-type]").forEach((button) => button.addEventListener("click", () => { type = button.dataset.type; updateTypeUI(); }));
       document.querySelectorAll("[data-class]").forEach((button) => button.addEventListener("click", () => { spendingClass = button.dataset.class; updateTypeUI(); }));
+      document.querySelectorAll("[data-next]").forEach((button) => button.addEventListener("click", () => moveStep(1)));
+      document.querySelectorAll("[data-back]").forEach((button) => button.addEventListener("click", () => moveStep(-1)));
+      $("category-choices").addEventListener("click", (event) => { const button = event.target.closest("[data-category]"); if (!button) return; if (button.dataset.category === "other") { customCategoryMode = true; $("title").value = ""; renderChoiceButtons(); $("title").focus(); } else { customCategoryMode = false; $("title").value = button.dataset.category; renderChoiceButtons(); } });
+      $("add-category").addEventListener("click", () => { const title = $("title").value.trim(); if (!title) return setStatus("Enter a category name first.", "error"); if (!state.config.categories.includes(title)) state.config.categories.push(title); customCategoryMode = false; persist(); renderOptions(); renderSettings(); setStatus(""); });
+      $("account-choices").addEventListener("click", (event) => { const button = event.target.closest("[data-account-choice]"); if (!button) return; $("account").value = button.dataset.accountChoice; renderChoiceButtons(); updateFxUI(); });
+      $("to-account-choices").addEventListener("click", (event) => { const button = event.target.closest("[data-to-account-choice]"); if (!button) return; $("to-account").value = button.dataset.toAccountChoice; renderChoiceButtons(); updateFxUI(); });
       $("capture-form").addEventListener("submit", validateAndSave); $("account").addEventListener("change", updateFxUI); $("to-account").addEventListener("change", updateFxUI); $("amount").addEventListener("input", calculateChf); $("fx-rate").addEventListener("input", () => { fxSource = "manual"; calculateChf(); }); $("date").addEventListener("change", () => { if (!$("fx-date").value) $("fx-date").value = $("date").value; });
       $("fetch-fx").addEventListener("click", fetchFx); $("export-csv").addEventListener("click", exportCsv); $("save-settings").addEventListener("click", saveSettings);
       $("clear-exported").addEventListener("click", () => { const count = state.entries.filter((item) => item.exportedAt).length; if (!count) return setStatus("There are no exported drafts to clear.", "error"); if (confirm(`Remove ${count} exported draft${count === 1 ? "" : "s"} from this device?`)) { state.entries = state.entries.filter((item) => !item.exportedAt); persist(); renderEntries(); setStatus("Exported drafts removed from this device.", "good"); } });
