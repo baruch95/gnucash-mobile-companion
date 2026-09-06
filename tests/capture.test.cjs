@@ -9,7 +9,7 @@ function capture() {
   const script = html.split('<script>')[1].split('</script>')[0];
   const elements = new Map();
   const element = id => {
-    if (!elements.has(id)) elements.set(id, { value:'', classList:{toggle(){}}, reset(){}, focus(){}, select(){} });
+    if (!elements.has(id)) elements.set(id, { value:'', classList:{toggle(){}}, setAttribute(){}, reset(){}, focus(){}, select(){} });
     return elements.get(id);
   };
   const context = vm.createContext({
@@ -30,6 +30,14 @@ test('hidden quick amount does not block normal form submission', () => {
   const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
   assert.match(html, /id="quick-amount"/);
   assert.doesNotMatch(html, /id="quick-amount"[^>]*\brequired\b/);
+});
+
+test('quick transaction launcher is placed below the three transaction choices', () => {
+  const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
+  const choices = html.indexOf('data-type="transfer"');
+  const launcher = html.indexOf('id="quick-toggle"');
+  assert.ok(launcher > choices);
+  assert.match(html.slice(launcher, launcher + 180), /Quick transaction/);
 });
 
 test('Revolut currency determines FX step and appears immediately after account', () => {

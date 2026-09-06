@@ -47,6 +47,7 @@
     .bottom-nav { position:fixed; z-index:10; bottom:0; left:50%; transform:translateX(-50%); width:min(100%,620px); display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:4px; padding:10px 16px calc(10px + env(safe-area-inset-bottom)); background:#ffffffed; backdrop-filter:blur(16px); border-top:1px solid var(--line); } .bottom-nav button { border:0; background:transparent; padding:8px; min-height:62px; color:var(--muted); font-size:12px; border-radius:14px; } .bottom-nav button[aria-current="page"] { background:var(--soft); color:var(--brand-dark); } .nav-icon { display:block; font-size:23px; line-height:1.15; font-weight:400; margin-bottom:3px; } .nav-count { font-size:11px; margin-left:3px; }
     .device-note { text-align:center; font-size:12px; color:var(--muted); margin-top:24px; } .quick-dates { display:flex; gap:10px; margin:16px 0; } .quick-dates button { flex:1; }
     .quick-preset { display:grid; grid-template-columns:minmax(0,1fr) 48px; gap:8px; } .quick-preset > button:first-child { text-align:left; } .quick-preset .danger { font-size:24px; padding:0; }
+    .quick-toggle { width:100%; margin-top:14px; background:var(--soft); color:var(--brand-dark); border-color:#c7e0e4; }
     @media (max-width:360px) { main { padding-left:16px; padding-right:16px; } .card { padding:18px; } .capture-card { padding:0; } .type-grid button { gap:12px; padding:16px; } .local-status { font-size:11px; } }
     @media (prefers-reduced-motion:reduce) { *,*::before,*::after { scroll-behavior:auto !important; transition:none !important; } }
   </style>
@@ -66,6 +67,7 @@
             <button type="button" data-type="refund"><span class="type-icon" aria-hidden="true">↙</span><span><strong>Refund</strong><small>Money returned to you</small></span><span class="chevron" aria-hidden="true">›</span></button>
             <button type="button" data-type="transfer"><span class="type-icon" aria-hidden="true">⇄</span><span><strong>Transfer</strong><small>Between your accounts</small></span><span class="chevron" aria-hidden="true">›</span></button>
           </div>
+          <button type="button" id="quick-toggle" class="quick-toggle" aria-expanded="false">Quick transaction</button>
         </section>
         <section class="step hidden" data-step="class">
           <p class="eyebrow">Spending class</p><h3>Necessary or Leisure?</h3><p class="step-copy">Tap one to continue.</p>
@@ -203,7 +205,7 @@
         categories: ["Food", "Transport", "Shopping", "Fun", "Health", "Housing", "Work", "Cat"]
       };
       let state = loadState();
-      let transactionCurrency = null, manualFx = false, ubsSplitChoice = null, quickPreset = null;
+      let transactionCurrency = null, manualFx = false, ubsSplitChoice = null, quickPreset = null, quickOpen = false;
       let type = null, spendingClass = null, editingId = null, fxSource = "manual", currentStep = "type", customCategoryMode = false;
       const $ = (id) => document.getElementById(id);
       const dateString = (date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
@@ -275,8 +277,10 @@
       }
       function renderPresets() {
         const presets = state.presets || [];
-        $("quick-presets-section").classList.toggle("hidden", presets.length === 0);
-        $("quick-presets").innerHTML = presets.map((preset) => `<div class="quick-preset"><button type="button" data-preset="${escapeHtml(preset.id)}"><strong>${escapeHtml(preset.title || "Transfer")}</strong><small>${escapeHtml(account(preset.accountId)?.label || preset.accountId)} · ${escapeHtml(money(preset.amount, preset.currency))}</small></button><button type="button" class="small danger" data-delete-preset="${escapeHtml(preset.id)}" aria-label="Remove ${escapeHtml(preset.title || "Transfer")} shortcut">×</button></div>`).join("");
+        $("quick-presets-section").classList.toggle("hidden", !quickOpen);
+        $("quick-presets").innerHTML = presets.length ? presets.map((preset) => `<div class="quick-preset"><button type="button" data-preset="${escapeHtml(preset.id)}"><strong>${escapeHtml(preset.title || "Transfer")}</strong><small>${escapeHtml(account(preset.accountId)?.label || preset.accountId)} · ${escapeHtml(money(preset.amount, preset.currency))}</small></button><button type="button" class="small danger" data-delete-preset="${escapeHtml(preset.id)}" aria-label="Remove ${escapeHtml(preset.title || "Transfer")} shortcut">×</button></div>`).join("") : '<p class="hint">Save a draft as a shortcut from Drafts first.</p>';
+        $("quick-toggle").textContent = quickOpen ? "Hide quick transactions" : "Quick transaction";
+        $("quick-toggle").setAttribute("aria-expanded", String(quickOpen));
       }
       function renderChoiceButtons() {
         const selected = $("account").value, selectedTo = $("to-account").value, title = $("title").value.trim();
@@ -305,7 +309,7 @@
         $("entries").innerHTML = sorted.length ? sorted.map((entry) => {
           const amountText = entry.currency === "CHF" ? money(entry.amount, "CHF") : `${money(entry.amount, "EUR")} · ${entry.chfAmount ? money(entry.chfAmount, "CHF") : "CHF rate needed"}`;
           const destination = entry.type === "transfer" ? ` → ${escapeHtml(account(entry.toAccountId)?.label || entry.toAccountId)}` : "";
-          return `<article class="entry"><div><strong>${escapeHtml(entry.title || "Transfer")} <span class="badge">${escapeHtml(entry.type)}</span>${entry.exportedAt ? '<span class="badge">exported</span>' : ""}</strong><small>${escapeHtml(entry.date)} · ${escapeHtml(account(entry.accountId)?.label || entry.accountId)}${destination}${entry.memo ? ` · ${escapeHtml(entry.memo)}` : ""}</small><div class="entry-amount">${escapeHtml(amountText)}</div></div><div class="entry-actions"><button class="small" type="button" data-edit="${escapeHtml(entry.id)}">Edit</button>${!entry.generatedFrom ? `<button class="small" type="button" data-save-preset="${escapeHtml(entry.id)}">Save shortcut</button>` : ""}${entry.exportedAt ? `<button class="small" type="button" data-unexport="${escapeHtml(entry.id)}">Mark unexported</button>` : ""}<button class="small danger" type="button" data-delete="${escapeHtml(entry.id)}">Delete</button></div></article>`;
+          return `<article class="entry"><div><strong>${escapeHtml(entry.title || "Transfer")} <span class="badge">${escapeHtml(entry.type)}</span>${entry.exportedAt ? '<span class="badge">exported</span>' : ""}</strong><small>${escapeHtml(entry.date)} · ${escapeHtml(account(entry.accountId)?.label || entry.accountId)}${destination}${entry.memo ? ` · ${escapeHtml(entry.memo)}` : ""}</small><div class="entry-amount">${escapeHtml(amountText)}</div></div><div class="entry-actions"><button class="small" type="button" data-edit="${escapeHtml(entry.id)}">Edit</button>${!entry.generatedFrom ? `<button class="small" type="button" data-save-preset="${escapeHtml(entry.id)}">Save quick transaction</button>` : ""}${entry.exportedAt ? `<button class="small" type="button" data-unexport="${escapeHtml(entry.id)}">Mark unexported</button>` : ""}<button class="small danger" type="button" data-delete="${escapeHtml(entry.id)}">Delete</button></div></article>`;
         }).join("") : '<div class="empty-state"><span class="type-icon" aria-hidden="true">▤</span><h3>A little less to remember.</h3><p>Capture an expense, refund, or transfer.<br>Your drafts will be waiting here.</p><button type="button" data-start-capture class="primary">Capture a transaction</button></div>';
       }
       function updateTypeUI() {
@@ -406,7 +410,7 @@
       }
       function resetForm() {
         cancelAdvance();
-        transactionCurrency = null; manualFx = false; ubsSplitChoice = null; quickPreset = null; editingId = null; type = null; spendingClass = null; fxSource = "manual"; currentStep = "type"; customCategoryMode = false;
+        transactionCurrency = null; manualFx = false; ubsSplitChoice = null; quickPreset = null; quickOpen = false; editingId = null; type = null; spendingClass = null; fxSource = "manual"; currentStep = "type"; customCategoryMode = false;
         $("capture-form").reset(); $("date").value = today(); $("fx-date").value = today(); $("fx-rate").value = "";
         renderOptions(); updateTypeUI(); setStatus(""); $("save-entry").textContent = "Save draft";
       }
@@ -451,11 +455,12 @@
         state.presets = [...(state.presets || []), preset]; persist(); renderPresets(); setStatus(`${preset.title || "Transfer"} added to Quick transactions.`, "good");
       }
       function applyPreset(preset) {
-        resetForm(); quickPreset = preset; type = preset.type; spendingClass = preset.spendingClass; transactionCurrency = preset.currency; ubsSplitChoice = preset.ubsSplit;
+        resetForm(); quickOpen = false; quickPreset = preset; type = preset.type; spendingClass = preset.spendingClass; transactionCurrency = preset.currency; ubsSplitChoice = preset.ubsSplit;
         $("title").value = preset.title || ""; $("memo").value = preset.memo || ""; $("account").value = preset.accountId; $("to-account").value = preset.toAccountId || ""; $("date").value = today(); $("quick-amount").value = preset.amount; $("amount").value = preset.amount;
         currentStep = "quick-amount"; renderChoiceButtons(); updateFxUI(); updateStepUI();
       }
       function deletePreset(id) { state.presets = (state.presets || []).filter((preset) => preset.id !== id); persist(); renderPresets(); }
+      function toggleQuickPresets() { quickOpen = !quickOpen; renderPresets(); }
       async function fetchFx() {
         if (!needsFx()) { setStatus("A rate is required only when EUR is involved.", "error"); return; }
         const targetDate = $("date").value || today();
@@ -574,6 +579,7 @@
       $("clear-exported").addEventListener("click", () => { const count = state.entries.filter((item) => item.exportedAt).length; if (!count) return setStatus("There are no exported drafts to clear.", "error"); if (confirm(`Remove ${count} exported draft${count === 1 ? "" : "s"} from this device?`)) { state.entries = state.entries.filter((item) => !item.exportedAt); persist(); renderEntries(); setStatus("Exported drafts removed from this device.", "good"); } });
       $("entries").addEventListener("click", (event) => { const edit = event.target.closest("[data-edit]"), save = event.target.closest("[data-save-preset]"), unexport = event.target.closest("[data-unexport]"), remove = event.target.closest("[data-delete]"); if (edit) loadEntry(state.entries.find((item) => item.id === edit.dataset.edit)); if (save) savePreset(state.entries.find((item) => item.id === save.dataset.savePreset)); if (unexport) markUnexported(unexport.dataset.unexport); if (remove) { const entry = state.entries.find((item) => item.id === remove.dataset.delete); if (entry && confirm(`Delete ${entry.title}?`)) { state.entries = state.entries.filter((item) => item.id !== entry.id); persist(); renderEntries(); if (editingId === entry.id) resetForm(); } } });
       $("quick-presets").addEventListener("click", (event) => { const use = event.target.closest("[data-preset]"), remove = event.target.closest("[data-delete-preset]"); if (remove) return deletePreset(remove.dataset.deletePreset); if (use) applyPreset((state.presets || []).find((preset) => preset.id === use.dataset.preset)); });
+      $("quick-toggle").addEventListener("click", toggleQuickPresets);
       $("cancel-quick").addEventListener("click", resetForm);
       document.querySelectorAll("[data-nav]").forEach((button) => button.addEventListener("click", () => showView(button.dataset.nav)));
       document.querySelectorAll("[data-date-offset]").forEach((button) => button.addEventListener("click", () => { const date = new Date(); date.setDate(date.getDate() + Number(button.dataset.dateOffset)); $("date").value = dateString(date); updateDateChoices(); advanceAfterChoice(); }));
