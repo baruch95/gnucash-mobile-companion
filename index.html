@@ -46,7 +46,7 @@
     .success-icon { display:grid; place-items:center; width:68px; height:68px; border-radius:50%; background:#dceee9; color:var(--brand); font-size:32px; margin:20px 0 24px; } .empty-state { text-align:center; padding:28px 6px; } .empty-state .type-icon { margin:0 auto 16px; } .empty-state h3 { font-size:20px; letter-spacing:-.03em; } .empty-state p { color:var(--muted); font-size:14px; }
     .bottom-nav { position:fixed; z-index:10; bottom:0; left:50%; transform:translateX(-50%); width:min(100%,620px); display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:4px; padding:10px 16px calc(10px + env(safe-area-inset-bottom)); background:#ffffffed; backdrop-filter:blur(16px); border-top:1px solid var(--line); } .bottom-nav button { border:0; background:transparent; padding:8px; min-height:62px; color:var(--muted); font-size:12px; border-radius:14px; } .bottom-nav button[aria-current="page"] { background:var(--soft); color:var(--brand-dark); } .nav-icon { display:block; font-size:23px; line-height:1.15; font-weight:400; margin-bottom:3px; } .nav-count { font-size:11px; margin-left:3px; }
     .device-note { text-align:center; font-size:12px; color:var(--muted); margin-top:24px; } .quick-dates { display:flex; gap:10px; margin:16px 0; } .quick-dates button { flex:1; }
-    .quick-preset { display:grid; grid-template-columns:minmax(0,1fr) 48px; gap:8px; } .quick-preset > button:first-child { text-align:left; } .quick-preset .danger { font-size:24px; padding:0; }
+    .quick-preset > button:first-child { width:100%; text-align:left; } .quick-manage-item { border-top:1px solid var(--line); padding:18px 0; } .quick-manage-item:first-child { border-top:0; padding-top:0; } .quick-manage-item small { display:block; color:var(--muted); margin-top:8px; } .quick-manage-actions { display:flex; gap:10px; align-items:end; margin-top:12px; } .quick-manage-actions label { flex:1; } .quick-manage-actions button { flex:0 0 auto; }
     .quick-toggle { width:100%; margin-top:14px; background:var(--soft); color:var(--brand-dark); border-color:#c7e0e4; }
     @media (max-width:360px) { main { padding-left:16px; padding-right:16px; } .card { padding:18px; } .capture-card { padding:0; } .type-grid button { gap:12px; padding:16px; } .local-status { font-size:11px; } }
     @media (prefers-reduced-motion:reduce) { *,*::before,*::after { scroll-behavior:auto !important; transition:none !important; } }
@@ -166,7 +166,9 @@
       <p class="hint">The CSV contains two balanced rows per transaction, with GnuCash account paths, transaction currency, and prices for cross-currency splits.</p>
     </section>
 
-    <section class="card hidden" data-view="settings" aria-label="Settings"><p class="eyebrow">Your setup</p><h2>Settings</h2>
+    <section class="card hidden" data-view="settings" aria-label="Settings">
+      <div id="settings-home"><p class="eyebrow">Your setup</p><h2>Settings</h2>
+        <button type="button" id="manage-quick" class="quick-toggle">Manage quick transactions</button>
       <details open><summary>Accounts and categories</summary>
         <p id="settings-status" class="status" role="status"></p><div class="settings">
           <p class="hint">These full account paths come from the current book. Change them here if the book changes; settings stay in this browser only.</p>
@@ -183,7 +185,13 @@
           <p id="backup-status" class="hint" role="status"></p>
           <p class="hint">Import the CSV through GnuCash’s transaction CSV importer. Map <code>Transaction ID</code> to transaction ID, and the split fields to their matching columns. Keep the rows with the same ID together as one transaction. The first desktop import should be reviewed before committing.</p>
         </div>
-      </details>
+      </details></div>
+      <div id="quick-management" class="hidden">
+        <p class="eyebrow">Settings</p><h2>Manage quick transactions</h2>
+        <p class="step-copy">Rename shortcuts with a nickname or remove ones you no longer use.</p>
+        <div id="managed-quick-presets"></div>
+        <div class="step-actions"><button type="button" id="close-quick-management">Back to settings</button></div>
+      </div>
     </section>
   </main>
   <nav class="bottom-nav" aria-label="Main navigation">
@@ -248,9 +256,18 @@
       function selectedAccount() { return account($("account").value); }
       function selectedToAccount() { return account($("to-account").value); }
       function isRevolut() { return ["revg", "revn2"].includes(selectedAccount()?.id); }
-      function canOfferUbsSplit() { return !editingId && type === "expense" && ["ubsg", "ubsn"].includes(selectedAccount()?.id); }
+      function sharedSplitOwner(item) {
+        if (!item) return null;
+        if (item.id === "ubsg") return "gio";
+        if (item.id === "ubsn") return "nico";
+        const text = `${item.label || ""} ${item.path || ""}`.toLowerCase();
+        if (/\b(?:gio|g)\b/.test(text) && /ubs/.test(text)) return "gio";
+        if (/\b(?:nico|n)\b/.test(text) && /ubs/.test(text)) return "nico";
+        return null;
+      }
+      function canOfferUbsSplit() { return !editingId && type === "expense" && Boolean(sharedSplitOwner(selectedAccount())); }
       function ubsSplitDetails() {
-        const paidByGio = selectedAccount()?.id === "ubsg";
+        const paidByGio = sharedSplitOwner(selectedAccount()) === "gio";
         const percentage = paidByGio ? Number(state.config.nicoSharePercent ?? 43) : Number(state.config.gioSharePercent ?? 57);
         const share = percentage / 100;
         const amount = number($("amount").value) || 0;
@@ -278,10 +295,18 @@
         $("category-options").innerHTML = state.config.categories.map((item) => `<option value="${escapeHtml(item)}"></option>`).join("");
         renderChoiceButtons();
         renderPresets();
+        renderManagedPresets();
       }
+      function presetLabel(preset) { return (typeof preset.nickname === "string" && preset.nickname.trim()) || preset.title || "Transfer"; }
       function renderPresets() {
         const presets = state.presets || [];
-        $("quick-presets").innerHTML = presets.length ? presets.map((preset) => `<div class="quick-preset"><button type="button" data-preset="${escapeHtml(preset.id)}"><strong>${escapeHtml(preset.title || "Transfer")}</strong><small>${escapeHtml(account(preset.accountId)?.label || preset.accountId)} · ${escapeHtml(money(preset.amount, preset.currency))}</small></button><button type="button" class="small danger" data-delete-preset="${escapeHtml(preset.id)}" aria-label="Remove ${escapeHtml(preset.title || "Transfer")} shortcut">×</button></div>`).join("") : '<p class="hint">Save a draft as a shortcut from Drafts first.</p>';
+        $("quick-presets").innerHTML = presets.length ? presets.map((preset) => `<div class="quick-preset"><button type="button" data-preset="${escapeHtml(preset.id)}"><strong>${escapeHtml(presetLabel(preset))}</strong><small>${escapeHtml(account(preset.accountId)?.label || preset.accountId)} · ${escapeHtml(money(preset.amount, preset.currency))}</small></button></div>`).join("") : '<p class="hint">Save a draft as a shortcut from Drafts first.</p>';
+      }
+      function renderManagedPresets() {
+        const container = $("managed-quick-presets");
+        if (!container) return;
+        const presets = state.presets || [];
+        container.innerHTML = presets.length ? presets.map((preset) => `<div class="quick-manage-item"><strong>${escapeHtml(preset.title || "Transfer")}</strong><small>${escapeHtml(account(preset.accountId)?.label || preset.accountId)} · ${escapeHtml(money(preset.amount, preset.currency))}</small><div class="quick-manage-actions"><label>Nickname<input type="text" data-preset-nickname="${escapeHtml(preset.id)}" value="${escapeHtml(preset.nickname || "")}" placeholder="Optional nickname" /></label><button type="button" class="small danger" data-delete-managed-preset="${escapeHtml(preset.id)}">Delete</button></div></div>`).join("") : '<p class="hint">No quick transactions saved yet. Save one from Drafts to use it here.</p>';
       }
       function renderChoiceButtons() {
         const selected = $("account").value, selectedTo = $("to-account").value, title = $("title").value.trim();
@@ -356,7 +381,7 @@
         $("step-progress").textContent = type ? `Step ${steps.indexOf(currentStep) + 1} of ${steps.length}` : "Make a quick note";
         if (currentStep === "amount") { $("amount-copy").textContent = `Enter the amount in ${selectedCurrency()}.`; $("amount").focus({ preventScroll:true }); $("amount").select(); }
         if (currentStep === "quick-amount") {
-          $("quick-amount-copy").textContent = `${quickPreset.title || "Transfer"} · ${selectedCurrency()}`;
+          $("quick-amount-copy").textContent = `${presetLabel(quickPreset)} · ${selectedCurrency()}`;
           $("quick-summary").innerHTML = `<dl><div><dt>Account</dt><dd>${escapeHtml(selectedAccount()?.label || "—")}</dd></div><div><dt>Category</dt><dd>${escapeHtml(quickPreset.title || "Transfer")}</dd></div><div><dt>Date</dt><dd>Today</dd></div></dl>`;
           $("save-quick").classList.toggle("hidden", needsFx()); $("continue-quick").classList.toggle("hidden", !needsFx());
           $("quick-amount").focus({ preventScroll:true }); $("quick-amount").select();
@@ -455,8 +480,8 @@
       }
       function savePreset(entry) {
         const generatedTransfer = state.entries.find((item) => item.generatedFrom === entry.id);
-        const preset = { id:uid(), type:entry.type, spendingClass:entry.spendingClass, title:entry.title, memo:entry.memo, accountId:entry.accountId, toAccountId:entry.toAccountId, amount:entry.amount, currency:entry.currency, accountCurrency:entry.accountCurrency || account(entry.accountId)?.currency, ubsSplit:Boolean(generatedTransfer) };
-        state.presets = [...(state.presets || []), preset]; persist(); renderPresets(); setStatus(`${preset.title || "Transfer"} added to Quick transactions.`, "good");
+        const preset = { id:uid(), type:entry.type, spendingClass:entry.spendingClass, title:entry.title, nickname:"", memo:entry.memo, accountId:entry.accountId, toAccountId:entry.toAccountId, amount:entry.amount, currency:entry.currency, accountCurrency:entry.accountCurrency || account(entry.accountId)?.currency, ubsSplit:Boolean(generatedTransfer) };
+        state.presets = [...(state.presets || []), preset]; persist(); renderPresets(); renderManagedPresets(); setStatus(`${preset.title || "Transfer"} added to Quick transactions.`, "good");
       }
       function applyPreset(preset) {
         if (!preset) return setStatus("That quick transaction is no longer available.", "error");
@@ -465,7 +490,18 @@
         $("title").value = preset.title || ""; $("memo").value = preset.memo || ""; $("account").value = preset.accountId; $("to-account").value = preset.toAccountId || ""; $("date").value = today(); $("quick-amount").value = preset.amount; $("amount").value = preset.amount;
         currentStep = "quick-amount"; renderChoiceButtons(); updateFxUI(); updateStepUI();
       }
-      function deletePreset(id) { state.presets = (state.presets || []).filter((preset) => preset.id !== id); persist(); renderPresets(); }
+      function deletePreset(id) { state.presets = (state.presets || []).filter((preset) => preset.id !== id); persist(); renderPresets(); renderManagedPresets(); }
+      function renamePreset(id, nickname) {
+        const preset = (state.presets || []).find((item) => item.id === id);
+        if (!preset) return;
+        preset.nickname = nickname.trim(); persist(); renderPresets();
+        setStatus(`${preset.title || "Transfer"} nickname saved.`, "good");
+      }
+      function deleteManagedPreset(id) {
+        const preset = (state.presets || []).find((item) => item.id === id);
+        if (!preset || !confirm(`Remove ${presetLabel(preset)} from Quick transactions?`)) return;
+        deletePreset(id); setStatus(`${presetLabel(preset)} removed from Quick transactions.`, "good");
+      }
       function toggleQuickPresets() { cancelAdvance(); quickOpen = true; quickPreset = null; currentStep = "quick-list"; renderPresets(); updateStepUI(); }
       async function fetchFx() {
         if (!needsFx()) { setStatus("A rate is required only when EUR is involved.", "error"); return; }
@@ -564,7 +600,7 @@
       document.querySelectorAll("[data-back]").forEach((button) => button.addEventListener("click", () => moveStep(-1)));
       $("category-choices").addEventListener("click", (event) => { const button = event.target.closest("[data-category]"); if (!button) return; if (button.dataset.category === "other") { cancelAdvance(); customCategoryMode = true; $("title").value = ""; renderChoiceButtons(); $("title").focus(); } else { customCategoryMode = false; $("title").value = button.dataset.category; renderChoiceButtons(); advanceAfterChoice(); } });
       $("add-category").addEventListener("click", () => { const title = $("title").value.trim(); if (!title) return setStatus("Enter a category name first.", "error"); if (!state.config.categories.includes(title)) state.config.categories.push(title); customCategoryMode = false; persist(); renderOptions(); renderSettings(); setStatus(""); advanceAfterChoice(); });
-      $("account-choices").addEventListener("click", (event) => { const button = event.target.closest("[data-account-choice]"); if (!button) return; if ($("account").value !== button.dataset.accountChoice) clearCurrencyChoice(); $("account").value = button.dataset.accountChoice; renderChoiceButtons(); updateFxUI(); advanceAfterChoice(); });
+      $("account-choices").addEventListener("click", (event) => { const button = event.target.closest("[data-account-choice]"); if (!button) return; if ($("account").value !== button.dataset.accountChoice) { clearCurrencyChoice(); ubsSplitChoice = null; } $("account").value = button.dataset.accountChoice; renderChoiceButtons(); updateFxUI(); advanceAfterChoice(); });
       $("to-account-choices").addEventListener("click", (event) => { const button = event.target.closest("[data-to-account-choice]"); if (!button) return; $("to-account").value = button.dataset.toAccountChoice; renderChoiceButtons(); updateFxUI(); advanceAfterChoice(); });
       $("capture-form").addEventListener("submit", validateAndSave); $("account").addEventListener("change", updateFxUI); $("to-account").addEventListener("change", updateFxUI); $("amount").addEventListener("input", calculateChf); $("fx-rate").addEventListener("input", () => { fxSource = "manual"; calculateChf(); }); $("date").addEventListener("change", () => { if (!$("fx-date").value) $("fx-date").value = $("date").value; });
       $("quick-amount").addEventListener("input", () => { $("amount").value = $("quick-amount").value; calculateChf(); });
@@ -584,9 +620,13 @@
       $("backup-data").addEventListener("click", backupData); $("restore-data").addEventListener("click", () => $("restore-file").click()); $("restore-file").addEventListener("change", (event) => restoreData(event.target.files?.[0]));
       $("clear-exported").addEventListener("click", () => { const count = state.entries.filter((item) => item.exportedAt).length; if (!count) return setStatus("There are no exported drafts to clear.", "error"); if (confirm(`Remove ${count} exported draft${count === 1 ? "" : "s"} from this device?`)) { state.entries = state.entries.filter((item) => !item.exportedAt); persist(); renderEntries(); setStatus("Exported drafts removed from this device.", "good"); } });
       $("entries").addEventListener("click", (event) => { const edit = event.target.closest("[data-edit]"), save = event.target.closest("[data-save-preset]"), unexport = event.target.closest("[data-unexport]"), remove = event.target.closest("[data-delete]"); if (edit) loadEntry(state.entries.find((item) => item.id === edit.dataset.edit)); if (save) savePreset(state.entries.find((item) => item.id === save.dataset.savePreset)); if (unexport) markUnexported(unexport.dataset.unexport); if (remove) { const entry = state.entries.find((item) => item.id === remove.dataset.delete); if (entry && confirm(`Delete ${entry.title}?`)) { state.entries = state.entries.filter((item) => item.id !== entry.id); persist(); renderEntries(); if (editingId === entry.id) resetForm(); } } });
-      $("quick-presets").addEventListener("click", (event) => { const use = event.target.closest("[data-preset]"), remove = event.target.closest("[data-delete-preset]"); if (remove) return deletePreset(remove.dataset.deletePreset); if (use) applyPreset((state.presets || []).find((preset) => preset.id === use.dataset.preset)); });
+      $("quick-presets").addEventListener("click", (event) => { const use = event.target.closest("[data-preset]"); if (use) applyPreset((state.presets || []).find((preset) => preset.id === use.dataset.preset)); });
       $("quick-toggle").addEventListener("click", toggleQuickPresets);
       $("cancel-quick").addEventListener("click", resetForm);
+      $("manage-quick").addEventListener("click", () => { $("settings-home").classList.add("hidden"); $("quick-management").classList.remove("hidden"); renderManagedPresets(); window.scrollTo({ top:0, behavior:"smooth" }); });
+      $("close-quick-management").addEventListener("click", () => { $("quick-management").classList.add("hidden"); $("settings-home").classList.remove("hidden"); window.scrollTo({ top:0, behavior:"smooth" }); });
+      $("managed-quick-presets").addEventListener("change", (event) => { const input = event.target.closest("[data-preset-nickname]"); if (input) renamePreset(input.dataset.presetNickname, input.value); });
+      $("managed-quick-presets").addEventListener("click", (event) => { const button = event.target.closest("[data-delete-managed-preset]"); if (button) deleteManagedPreset(button.dataset.deleteManagedPreset); });
       document.querySelectorAll("[data-nav]").forEach((button) => button.addEventListener("click", () => {
         if (button.dataset.nav === "capture" && currentStep === "done") resetForm();
         showView(button.dataset.nav);
