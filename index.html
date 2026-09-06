@@ -404,13 +404,15 @@
           if (!(rate > 0) || !(chfAmount > 0)) throw new Error(`Add a CHF value to ${entry.title || "Transfer"} before exporting. Open Edit, then Add CHF value for CSV.`);
           return target === "CHF" ? chfAmount : chfAmount / rate;
         };
-        const memo = [entry.memo, `capture:${entry.id}`, rate > 0 ? `FX EUR/CHF ${entry.fxRate} (${entry.fxDate}, ${entry.fxSource || "manual"})` : ""].filter(Boolean).join(" · ");
+        const exportCurrency = entry.accountId === "revg" ? "EUR" : currency;
+        const exportValue = converted(exportCurrency);
+        const memo = [entry.memo, exportCurrency !== currency ? `Original amount ${amount.toFixed(2)} ${currency}` : "", `capture:${entry.id}`, rate > 0 ? `FX EUR/CHF ${entry.fxRate} (${entry.fxDate}, ${entry.fxSource || "manual"})` : ""].filter(Boolean).join(" · ");
         const sign = entry.type === "refund" ? 1 : -1;
-        const first = { account:source.path, amount:sign * converted(sourceCurrency), currency:sourceCurrency, value:sign * amount };
+        const first = { account:source.path, amount:sign * converted(sourceCurrency), currency:sourceCurrency, value:sign * exportValue };
         const second = entry.type === "transfer"
-          ? { account:destination.path, amount:converted(destination.currency), currency:destination.currency, value:amount }
-          : { account:entry.spendingClass === "Necessary" ? state.config.necessaryPath : state.config.leisurePath, amount:-sign * converted("CHF"), currency:"CHF", value:-sign * amount };
-        return [first, second].map((split) => [entry.id, entry.date, entry.title, memo, split.account, split.amount.toFixed(2), split.currency, currency, split.value.toFixed(2), entry.fxRate || "", entry.chfAmount ?? "", entry.type, entry.spendingClass || ""]);
+          ? { account:destination.path, amount:converted(destination.currency), currency:destination.currency, value:exportValue }
+          : { account:entry.spendingClass === "Necessary" ? state.config.necessaryPath : state.config.leisurePath, amount:-sign * converted("CHF"), currency:"CHF", value:-sign * exportValue };
+        return [first, second].map((split) => [entry.id, entry.date, entry.title, memo, split.account, split.amount.toFixed(2), split.currency, exportCurrency, split.value.toFixed(2), entry.fxRate || "", entry.chfAmount ?? "", entry.type, entry.spendingClass || ""]);
       }
       function exportCsv() {
         const pending = state.entries.filter((entry) => !entry.exportedAt);

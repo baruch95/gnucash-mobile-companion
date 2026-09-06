@@ -23,3 +23,5 @@ REV-G (EUR) and REV-N2 (CHF) ask for the transaction currency immediately after 
 Native EUR expenses/refunds can be saved without a CHF conversion. To export them to the configured CHF expense account, open Edit and use **Add CHF value for CSV**. Export reports missing conversions instead of assuming a rate. Existing drafts and backups remain readable; new drafts retain transaction currency separately from account currency.
 
 Today and Yesterday highlight the selected date and advance after 500 ms. Selecting another shortcut restarts the timer; manual date editing or navigating away cancels it.
+
+REV-G exports always use EUR as the GnuCash transaction currency. CHF receipt amounts are converted with the explicit rate and retained in the memo; CHF expense split amounts are preserved.

@@ -48,7 +48,8 @@ test('foreign Revolut purchases and refunds retain transaction and account amoun
     assert.equal(entry.currency,currency);
     const rows = c.api.splitRows(entry);
     assert.equal(rows[0][5],sourceAmount);
-    assert.equal(rows[0][7],currency);
+    assert.equal(rows[0][7],account === 'revg' ? 'EUR' : currency);
+    if (account === 'revg') { assert.equal(rows[0][8],'-111.11'); assert.match(rows[0][3], /Original amount 100.00 CHF/); }
     assert.equal(Number(rows[0][8]) + Number(rows[1][8]),0);
     const refund = c.api.splitRows({...entry,type:'refund'});
     assert.equal(Number(refund[0][5]),-Number(rows[0][5]));
@@ -76,6 +77,8 @@ test('cross-currency transfers convert both account splits and balance transacti
   const rows = c.api.splitRows(c.api.read()[0]);
   assert.equal(rows[0][5],'-111.11'); assert.equal(rows[0][6],'EUR');
   assert.equal(rows[1][5],'100.00'); assert.equal(rows[1][6],'CHF');
+  assert.equal(rows[0][7],'EUR'); assert.equal(rows[1][7],'EUR');
+  assert.equal(rows[0][8],'-111.11'); assert.equal(rows[1][8],'111.11');
   assert.equal(Number(rows[0][8]) + Number(rows[1][8]),0);
 });
 
