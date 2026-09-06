@@ -21,7 +21,15 @@
     button,input,select { font:inherit; } button { min-height:48px; border-radius:14px; border:1px solid var(--line); background:white; color:var(--ink); cursor:pointer; padding:12px 16px; font-weight:650; transition:background .16s,border-color .16s,transform .16s; touch-action:manipulation; }
     button:hover { border-color:var(--brand); background:var(--soft); } button:active { transform:scale(.985); } button.selected,button.primary { background:var(--brand); border-color:var(--brand); color:white; } button.primary { width:100%; margin-top:4px; } button:disabled { opacity:.45; cursor:default; } button.danger { color:var(--danger); } button.small { min-height:44px; padding:9px 12px; font-size:14px; }
     :focus-visible { outline:3px solid #56a8bc; outline-offset:3px; }
-    label { display:block; font-size:14px; font-weight:650; color:#435861; } input,select { display:block; width:100%; min-width:0; min-height:52px; margin-top:8px; border:1px solid var(--line); border-radius:13px; background:white; padding:12px; color:var(--ink); } input:focus,select:focus { border-color:var(--brand); }
+    label { min-width:0; max-width:100%; display:block; font-size:14px; font-weight:650; color:#435861; } input,select { display:block; width:100%; min-width:0; min-height:52px; margin-top:8px; border:1px solid var(--line); border-radius:13px; background:white; padding:12px; color:var(--ink); } input:focus,select:focus { border-color:var(--brand); }
+    input[type="date"] { appearance:none; -webkit-appearance:none; width:100%; max-width:100%; min-width:0; overflow:hidden; }
+    input[type="date"]::-webkit-date-and-time-value { min-width:0; text-align:left; }
+    input[type="date"]::-webkit-datetime-edit { min-width:0; padding:0; }
+    .type-grid button.selected { outline:3px solid #56a8bc; outline-offset:2px; background:var(--brand); color:white; }
+    .type-grid button.selected small { color:#e0f1f4; }
+    .type-grid:has(.selected) button:first-child:not(.selected) { background:white; border-color:var(--line); color:var(--ink); }
+    .type-grid:has(.selected) button:first-child:not(.selected) small { color:var(--muted); }
+    .type-grid:has(.selected) button:first-child:not(.selected) .type-icon { background:var(--soft); color:var(--brand); }
     .type-grid { display:grid; gap:12px; } .type-grid button { display:grid; grid-template-columns:48px 1fr 20px; align-items:center; gap:16px; text-align:left; min-height:100px; padding:20px; border-radius:20px; } .type-grid strong { display:block; font-size:19px; letter-spacing:-.025em; } .type-grid small { display:block; font-size:14px; color:var(--muted); font-weight:400; margin-top:3px; }
     .type-grid button:first-child { background:var(--brand-dark); border-color:var(--brand-dark); color:white; } .type-grid button:first-child small { color:#c3dce1; } .type-icon { width:48px; height:48px; border-radius:15px; display:grid; place-items:center; background:var(--soft); color:var(--brand); font-size:26px; font-weight:400; } .type-grid button:first-child .type-icon { background:#ffffff18; color:#a7e5dd; } .type-grid button[data-type="refund"] .type-icon { background:#eaf0fe; color:#4c64a1; } .type-grid button[data-type="transfer"] .type-icon { background:#f2eefa; color:#796199; } .chevron { font-weight:400; font-size:24px; }
     .choice-grid,.account-choices,.category-choices { display:grid; gap:12px; grid-template-columns:repeat(2,minmax(0,1fr)); } .choice-grid button { min-height:100px; font-size:18px; } .choice-grid button small { display:block; font-size:13px; font-weight:400; margin-top:6px; } .account-choices button { text-align:left; min-height:90px; } .account-choices button small { display:block; opacity:.76; font-size:13px; margin-top:8px; font-weight:500; } .category-choices button { min-height:64px; overflow-wrap:anywhere; }
@@ -89,15 +97,15 @@
         </section>
         <section class="step hidden" data-step="amount">
           <p class="eyebrow">Amount</p><h3>How much?</h3><p id="amount-copy" class="step-copy">Enter the amount.</p>
-          <label class="wide">Amount <input id="amount" type="number" min="0.01" step="0.01" inputmode="decimal" required placeholder="0.00" /></label>
+          <label class="wide">Amount <input id="amount" type="text" inputmode="decimal" autocomplete="off" required placeholder="0.00" /></label>
           <div class="step-actions"><button type="button" data-back>Back</button><button type="button" class="primary" data-next>Continue</button></div>
         </section>
         <section class="step hidden" data-step="fx">
           <p class="eyebrow">EUR → CHF</p><h3>Confirm the exchange rate</h3><p class="step-copy">Fetch a reference rate, then correct it if the card statement differs.</p>
           <div class="form-grid" style="margin-top:0">
-            <label>Rate <input id="fx-rate" type="number" min="0.000001" step="0.000001" inputmode="decimal" placeholder="Fetch or enter" /></label>
+            <label>Rate <input id="fx-rate" type="text" inputmode="decimal" autocomplete="off" placeholder="Fetch or enter" /></label>
             <label>Rate date <input id="fx-date" type="date" /></label>
-            <label class="wide">CHF equivalent <input id="chf-amount" type="number" min="0.01" step="0.01" inputmode="decimal" placeholder="Calculated from rate" /></label>
+            <label class="wide">CHF equivalent <input id="chf-amount" type="text" inputmode="decimal" autocomplete="off" placeholder="Calculated from rate" /></label>
           </div>
           <div class="actions" style="margin-top:9px"><button type="button" id="fetch-fx">Fetch rate</button></div>
           <p id="fx-status" class="hint">Rates come from Frankfurter and can always be corrected to match the card statement.</p>
@@ -167,6 +175,7 @@
       const dateString = (date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
       const today = () => dateString(new Date());
       function showView(view) {
+        cancelAdvance();
         document.querySelectorAll("[data-view]").forEach((section) => section.classList.toggle("hidden", section.dataset.view !== view));
         document.querySelectorAll("[data-nav]").forEach((button) => { if (button.dataset.nav === view) button.setAttribute("aria-current", "page"); else button.removeAttribute("aria-current"); });
         window.scrollTo({ top:0, behavior:"instant" });
@@ -187,8 +196,13 @@
       function persist() { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
       function uid() { return crypto.randomUUID ? crypto.randomUUID() : `mobile-${Date.now()}-${Math.random().toString(16).slice(2)}`; }
       function escapeHtml(value) { return String(value).replace(/[&<>"]/g, (character) => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;" })[character]); }
-      function number(value) { const parsed = Number(value); return Number.isFinite(parsed) ? parsed : null; }
-      function money(value, currency) { return new Intl.NumberFormat("de-CH", { style:"currency", currency, minimumFractionDigits:2 }).format(Number(value)); }
+      function number(value) {
+        const normalized = String(value ?? "").trim().replace(",", ".");
+        if (!/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)$/.test(normalized)) return null;
+        const parsed = Number(normalized);
+        return Number.isFinite(parsed) ? parsed : null;
+      }
+      function money(value, currency) { return new Intl.NumberFormat("de-CH", { style:"currency", currency, minimumFractionDigits:2 }).format(number(value)); }
       function account(id) { return state.config.accounts.find((item) => item.id === id); }
       function selectedAccount() { return account($("account").value); }
       function selectedToAccount() { return account($("to-account").value); }
@@ -268,7 +282,18 @@
         if (step === "fx") { const rate = number($("fx-rate").value), amount = number($("chf-amount").value); if (!rate || rate <= 0 || !amount || amount <= 0) { setStatus("Fetch or enter a EUR → CHF rate and CHF equivalent.", "error"); return false; } }
         setStatus(""); return true;
       }
+      let advanceTimer = null;
+      function cancelAdvance() { clearTimeout(advanceTimer); advanceTimer = null; }
+      function advanceAfterChoice() {
+        cancelAdvance();
+        const chosenStep = currentStep;
+        advanceTimer = setTimeout(() => {
+          advanceTimer = null;
+          if (currentStep === chosenStep) moveStep(1);
+        }, 500);
+      }
       function moveStep(direction) {
+        cancelAdvance();
         const steps = stepsForType(), index = steps.indexOf(currentStep);
         if (direction > 0 && !stepIsValid(currentStep)) return;
         currentStep = steps[Math.max(0, Math.min(steps.length - 1, index + direction))]; updateStepUI(); window.scrollTo({ top:0, behavior:"smooth" });
@@ -288,11 +313,13 @@
         if (amount && selectedCurrency() === "CHF") $("chf-amount").value = amount.toFixed(2);
       }
       function resetForm() {
+        cancelAdvance();
         editingId = null; type = null; spendingClass = null; fxSource = "manual"; currentStep = "type"; customCategoryMode = false;
         $("capture-form").reset(); $("date").value = today(); $("fx-date").value = today(); $("fx-rate").value = "";
         renderOptions(); updateTypeUI(); setStatus(""); $("save-entry").textContent = "Save draft";
       }
       function loadEntry(entry) {
+        cancelAdvance();
         showView("capture"); editingId = entry.id; type = entry.type; spendingClass = entry.spendingClass || "Necessary";
         renderOptions(); $("date").value = entry.date; $("title").value = entry.title || ""; $("memo").value = entry.memo || ""; $("amount").value = entry.amount; $("account").value = entry.accountId; $("to-account").value = entry.toAccountId || state.config.accounts[0].id;
         $("fx-rate").value = entry.fxRate || ""; $("fx-date").value = entry.fxDate || entry.date; $("chf-amount").value = entry.chfAmount || ""; fxSource = entry.fxSource || "manual";
@@ -389,14 +416,14 @@
         };
         reader.readAsText(file);
       }
-      document.querySelectorAll("[data-type]").forEach((button) => button.addEventListener("click", () => { type = button.dataset.type; updateTypeUI(); moveStep(1); }));
-      document.querySelectorAll("[data-class]").forEach((button) => button.addEventListener("click", () => { spendingClass = button.dataset.class; updateTypeUI(); moveStep(1); }));
+      document.querySelectorAll("[data-type]").forEach((button) => button.addEventListener("click", () => { type = button.dataset.type; updateTypeUI(); advanceAfterChoice(); }));
+      document.querySelectorAll("[data-class]").forEach((button) => button.addEventListener("click", () => { spendingClass = button.dataset.class; updateTypeUI(); advanceAfterChoice(); }));
       document.querySelectorAll("[data-next]").forEach((button) => button.addEventListener("click", () => moveStep(1)));
       document.querySelectorAll("[data-back]").forEach((button) => button.addEventListener("click", () => moveStep(-1)));
-      $("category-choices").addEventListener("click", (event) => { const button = event.target.closest("[data-category]"); if (!button) return; if (button.dataset.category === "other") { customCategoryMode = true; $("title").value = ""; renderChoiceButtons(); $("title").focus(); } else { customCategoryMode = false; $("title").value = button.dataset.category; renderChoiceButtons(); moveStep(1); } });
-      $("add-category").addEventListener("click", () => { const title = $("title").value.trim(); if (!title) return setStatus("Enter a category name first.", "error"); if (!state.config.categories.includes(title)) state.config.categories.push(title); customCategoryMode = false; persist(); renderOptions(); renderSettings(); setStatus(""); moveStep(1); });
-      $("account-choices").addEventListener("click", (event) => { const button = event.target.closest("[data-account-choice]"); if (!button) return; $("account").value = button.dataset.accountChoice; renderChoiceButtons(); updateFxUI(); moveStep(1); });
-      $("to-account-choices").addEventListener("click", (event) => { const button = event.target.closest("[data-to-account-choice]"); if (!button) return; $("to-account").value = button.dataset.toAccountChoice; renderChoiceButtons(); updateFxUI(); moveStep(1); });
+      $("category-choices").addEventListener("click", (event) => { const button = event.target.closest("[data-category]"); if (!button) return; if (button.dataset.category === "other") { cancelAdvance(); customCategoryMode = true; $("title").value = ""; renderChoiceButtons(); $("title").focus(); } else { customCategoryMode = false; $("title").value = button.dataset.category; renderChoiceButtons(); advanceAfterChoice(); } });
+      $("add-category").addEventListener("click", () => { const title = $("title").value.trim(); if (!title) return setStatus("Enter a category name first.", "error"); if (!state.config.categories.includes(title)) state.config.categories.push(title); customCategoryMode = false; persist(); renderOptions(); renderSettings(); setStatus(""); advanceAfterChoice(); });
+      $("account-choices").addEventListener("click", (event) => { const button = event.target.closest("[data-account-choice]"); if (!button) return; $("account").value = button.dataset.accountChoice; renderChoiceButtons(); updateFxUI(); advanceAfterChoice(); });
+      $("to-account-choices").addEventListener("click", (event) => { const button = event.target.closest("[data-to-account-choice]"); if (!button) return; $("to-account").value = button.dataset.toAccountChoice; renderChoiceButtons(); updateFxUI(); advanceAfterChoice(); });
       $("capture-form").addEventListener("submit", validateAndSave); $("account").addEventListener("change", updateFxUI); $("to-account").addEventListener("change", updateFxUI); $("amount").addEventListener("input", calculateChf); $("fx-rate").addEventListener("input", () => { fxSource = "manual"; calculateChf(); }); $("date").addEventListener("change", () => { if (!$("fx-date").value) $("fx-date").value = $("date").value; });
       $("fetch-fx").addEventListener("click", fetchFx); $("export-csv").addEventListener("click", exportCsv); $("save-settings").addEventListener("click", saveSettings);
       $("new-entry").addEventListener("click", resetForm);
