@@ -122,6 +122,16 @@
           <label class="wide">Detail / merchant <input id="memo" autocomplete="off" placeholder="Optional — e.g. Coop Bahnhof" /></label>
           <div class="step-actions"><button type="button" data-back>Back</button><button id="save-entry" class="primary" type="submit">Save draft</button></div>
         </section>
+        <section class="step hidden" data-step="ubs-split">
+          <p class="eyebrow">Shared expense</p><h3>Split this between Nico and Gio?</h3>
+          <p id="ubs-split-copy" class="step-copy"></p>
+          <div id="ubs-split-summary" class="review"></div>
+          <div class="choice-grid" role="group" aria-label="Split this UBS expense">
+            <button type="button" data-ubs-split="yes">Split 43 / 57<small>Create the reimbursement transfer</small></button>
+            <button type="button" data-ubs-split="no">No split<small>Save only the expense</small></button>
+          </div>
+          <div class="step-actions"><button type="button" data-back>Back</button></div>
+        </section>
         <section class="step hidden" data-step="done">
           <div class="success-icon" aria-hidden="true">✓</div><p class="eyebrow">Draft saved</p><h3>Details taken care of.</h3><p id="saved-copy" class="step-copy">It is stored on this device.</p>
           <button type="button" id="new-entry" class="primary">Add another transaction</button>
@@ -143,7 +153,12 @@
         <p id="settings-status" class="status" role="status"></p><div class="settings">
           <p class="hint">These full account paths come from the current book. Change them here if the book changes; settings stay in this browser only.</p>
           <div id="account-settings"></div>
-          <div class="form-grid"><label class="wide">Necessary expense account <input id="necessary-path" /></label><label class="wide">Leisure expense account <input id="leisure-path" /></label><label class="wide">Categories (comma separated) <input id="categories" /></label></div>
+          <div class="form-grid">
+            <label class="wide">Necessary expense account <input id="necessary-path" /></label><label class="wide">Leisure expense account <input id="leisure-path" /></label><label class="wide">Categories (comma separated) <input id="categories" /></label>
+            <label>Nico shared-expense share % <input id="nico-share" type="text" inputmode="decimal" autocomplete="off" /></label>
+            <label>Gio shared-expense share % <input id="gio-share" type="text" inputmode="decimal" autocomplete="off" /></label>
+          </div>
+          <p class="hint">The two shares must total 100%. They determine the generated reimbursement when a UBS account pays a shared expense.</p>
           <button type="button" id="save-settings" class="primary">Save settings</button>
           <div class="divider"></div><p class="eyebrow">Backup</p><p class="hint">Save drafts and settings as a JSON backup before changing phones or clearing browser data.</p>
           <div class="actions"><button type="button" id="backup-data">Download backup</button><button type="button" id="restore-data">Restore backup</button></div><input id="restore-file" class="hidden" type="file" accept="application/json,.json" />
@@ -172,11 +187,11 @@
           { id: "ubsg", label: "UBS-G", path: "Assets:Gio:UBS-G", currency: "CHF" },
           { id: "ubsn", label: "UBS-N", path: "Assets:Nico:UBS-N", currency: "CHF" }
         ],
-        necessaryPath: "Expenses:Necessary", leisurePath: "Expenses:Leisure",
+        necessaryPath: "Expenses:Necessary", leisurePath: "Expenses:Leisure", nicoSharePercent:43, gioSharePercent:57,
         categories: ["Food", "Transport", "Shopping", "Fun", "Health", "Housing", "Work", "Cat"]
       };
       let state = loadState();
-      let transactionCurrency = null, manualFx = false;
+      let transactionCurrency = null, manualFx = false, ubsSplitChoice = null;
       let type = null, spendingClass = null, editingId = null, fxSource = "manual", currentStep = "type", customCategoryMode = false;
       const $ = (id) => document.getElementById(id);
       const dateString = (date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
@@ -215,6 +230,19 @@
       function selectedAccount() { return account($("account").value); }
       function selectedToAccount() { return account($("to-account").value); }
       function isRevolut() { return ["revg", "revn2"].includes(selectedAccount()?.id); }
+      function canOfferUbsSplit() { return !editingId && type === "expense" && ["ubsg", "ubsn"].includes(selectedAccount()?.id); }
+      function ubsSplitDetails() {
+        const paidByGio = selectedAccount()?.id === "ubsg";
+        const percentage = paidByGio ? Number(state.config.nicoSharePercent ?? 43) : Number(state.config.gioSharePercent ?? 57);
+        const share = percentage / 100;
+        const amount = number($("amount").value) || 0;
+        return {
+          from: paidByGio ? account("ubsn") : account("ubsg"),
+          to: selectedAccount(),
+          percentage,
+          amount: Number((amount * share).toFixed(2)),
+        };
+      }
       function selectedCurrency() { return (isRevolut() && transactionCurrency) || selectedAccount()?.currency || "CHF"; }
       function clearCurrencyChoice() { transactionCurrency = null; manualFx = false; $("fx-rate").value = ""; $("chf-amount").value = ""; fxSource = "manual"; }
       function updateCurrencyChoices() {
@@ -245,6 +273,8 @@
         $("necessary-path").value = state.config.necessaryPath;
         $("leisure-path").value = state.config.leisurePath;
         $("categories").value = state.config.categories.join(", ");
+        $("nico-share").value = String(state.config.nicoSharePercent ?? 43);
+        $("gio-share").value = String(state.config.gioSharePercent ?? 57);
       }
       function renderEntries() {
         const sorted = [...state.entries].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
@@ -257,7 +287,7 @@
         $("entries").innerHTML = sorted.length ? sorted.map((entry) => {
           const amountText = entry.currency === "CHF" ? money(entry.amount, "CHF") : `${money(entry.amount, "EUR")} · ${entry.chfAmount ? money(entry.chfAmount, "CHF") : "CHF rate needed"}`;
           const destination = entry.type === "transfer" ? ` → ${escapeHtml(account(entry.toAccountId)?.label || entry.toAccountId)}` : "";
-          return `<article class="entry"><div><strong>${escapeHtml(entry.title || "Transfer")} <span class="badge">${escapeHtml(entry.type)}</span>${entry.exportedAt ? '<span class="badge">exported</span>' : ""}</strong><small>${escapeHtml(entry.date)} · ${escapeHtml(account(entry.accountId)?.label || entry.accountId)}${destination}${entry.memo ? ` · ${escapeHtml(entry.memo)}` : ""}</small><div class="entry-amount">${escapeHtml(amountText)}</div></div><div class="entry-actions"><button class="small" type="button" data-edit="${escapeHtml(entry.id)}">Edit</button><button class="small danger" type="button" data-delete="${escapeHtml(entry.id)}">Delete</button></div></article>`;
+          return `<article class="entry"><div><strong>${escapeHtml(entry.title || "Transfer")} <span class="badge">${escapeHtml(entry.type)}</span>${entry.exportedAt ? '<span class="badge">exported</span>' : ""}</strong><small>${escapeHtml(entry.date)} · ${escapeHtml(account(entry.accountId)?.label || entry.accountId)}${destination}${entry.memo ? ` · ${escapeHtml(entry.memo)}` : ""}</small><div class="entry-amount">${escapeHtml(amountText)}</div></div><div class="entry-actions"><button class="small" type="button" data-edit="${escapeHtml(entry.id)}">Edit</button>${entry.exportedAt ? `<button class="small" type="button" data-unexport="${escapeHtml(entry.id)}">Mark unexported</button>` : ""}<button class="small danger" type="button" data-delete="${escapeHtml(entry.id)}">Delete</button></div></article>`;
         }).join("") : '<div class="empty-state"><span class="type-icon" aria-hidden="true">▤</span><h3>A little less to remember.</h3><p>Capture an expense, refund, or transfer.<br>Your drafts will be waiting here.</p><button type="button" data-start-capture class="primary">Capture a transaction</button></div>';
       }
       function updateTypeUI() {
@@ -277,7 +307,9 @@
         const steps = type === "transfer" ? ["type", "account"] : ["type", "class", "category", "account"];
         if (isRevolut()) steps.push("currency");
         if (type === "transfer") steps.push("to-account");
-        steps.push("date", "amount"); if (needsFx()) steps.push("fx"); steps.push("note"); return steps;
+        steps.push("date", "amount"); if (needsFx()) steps.push("fx"); steps.push("note");
+        if (canOfferUbsSplit()) steps.push("ubs-split");
+        return steps;
       }
       function updateDateChoices() {
         document.querySelectorAll("[data-date-offset]").forEach((button) => {
@@ -297,6 +329,11 @@
         document.querySelectorAll("[data-step]").forEach((section) => section.classList.toggle("hidden", section.dataset.step !== currentStep));
         $("step-progress").textContent = type ? `Step ${steps.indexOf(currentStep) + 1} of ${steps.length}` : "Make a quick note";
         if (currentStep === "amount") { $("amount-copy").textContent = `Enter the amount in ${selectedCurrency()}.`; $("amount").focus({ preventScroll:true }); $("amount").select(); }
+        if (currentStep === "ubs-split") {
+          const split = ubsSplitDetails();
+          $("ubs-split-copy").textContent = `${split.from.label} reimburses ${split.to.label} for the other person's share.`;
+          $("ubs-split-summary").innerHTML = `<dl><div><dt>Expense</dt><dd>${escapeHtml(money($("amount").value, "CHF"))}</dd></div><div><dt>${split.from.label} → ${split.to.label}</dt><dd>${split.percentage}% · ${escapeHtml(money(split.amount, "CHF"))}</dd></div></dl>`;
+        }
       }
       function stepIsValid(step) {
         if (step === "currency" && !transactionCurrency) { setStatus("Choose CHF or EUR.", "error"); return false; }
@@ -343,20 +380,21 @@
       }
       function resetForm() {
         cancelAdvance();
-        transactionCurrency = null; manualFx = false; editingId = null; type = null; spendingClass = null; fxSource = "manual"; currentStep = "type"; customCategoryMode = false;
+        transactionCurrency = null; manualFx = false; ubsSplitChoice = null; editingId = null; type = null; spendingClass = null; fxSource = "manual"; currentStep = "type"; customCategoryMode = false;
         $("capture-form").reset(); $("date").value = today(); $("fx-date").value = today(); $("fx-rate").value = "";
         renderOptions(); updateTypeUI(); setStatus(""); $("save-entry").textContent = "Save draft";
       }
       function loadEntry(entry) {
         cancelAdvance();
-        showView("capture"); transactionCurrency = entry.currency; manualFx = false; editingId = entry.id; type = entry.type; spendingClass = entry.spendingClass || "Necessary";
+        showView("capture"); transactionCurrency = entry.currency; manualFx = false; ubsSplitChoice = null; editingId = entry.id; type = entry.type; spendingClass = entry.spendingClass || "Necessary";
         renderOptions(); $("date").value = entry.date; $("title").value = entry.title || ""; $("memo").value = entry.memo || ""; $("amount").value = entry.amount; $("account").value = entry.accountId; $("to-account").value = entry.toAccountId || state.config.accounts[0].id;
         $("fx-rate").value = entry.fxRate || ""; $("fx-date").value = entry.fxDate || entry.date; $("chf-amount").value = entry.chfAmount || ""; fxSource = entry.fxSource || "manual";
         currentStep = "note"; customCategoryMode = Boolean(entry.title && !state.config.categories.includes(entry.title)); updateTypeUI(); $("save-entry").textContent = "Update draft"; setStatus("Editing draft. Save to keep your changes.", "good"); window.scrollTo({ top:0, behavior:"smooth" });
       }
       function validateAndSave(event) {
         event.preventDefault();
-        if (currentStep !== "note") return;
+        if (currentStep === "note" && canOfferUbsSplit() && ubsSplitChoice === null) { currentStep = "ubs-split"; updateStepUI(); return; }
+        if (!(["note", "ubs-split"].includes(currentStep))) return;
         const source = selectedAccount(), destination = selectedToAccount(), amount = number($("amount").value), rate = number($("fx-rate").value), chfAmount = number($("chf-amount").value);
         if (!source || !amount || amount <= 0) return setStatus("Enter a positive amount and source account.", "error");
         if (type === "transfer" && (!destination || destination.id === source.id)) return setStatus("Choose a different destination account for the transfer.", "error");
@@ -370,9 +408,15 @@
         const prior = state.entries.find((item) => item.id === editingId);
         const entry = { id: editingId || uid(), createdAt: prior?.createdAt || new Date().toISOString(), exportedAt: prior?.exportedAt || null, type, spendingClass: type === "transfer" ? null : spendingClass, title: type === "transfer" ? "Transfer" : $("title").value.trim(), date: $("date").value, memo: $("memo").value.trim(), accountId: source.id, toAccountId: type === "transfer" ? destination.id : null, amount: amount.toFixed(2), currency: selectedCurrency(), accountCurrency: source.currency, fxRate: savedRate, fxDate: savedRate ? ($("fx-date").value || $("date").value) : $("date").value, fxSource: savedRate ? fxSource : "not-applicable", chfAmount: savedChf === null ? null : savedChf.toFixed(2) };
         if (prior) state.entries = state.entries.map((item) => item.id === entry.id ? entry : item); else state.entries.push(entry);
+        let generatedTransfer = null;
+        if (!prior && ubsSplitChoice === true) {
+          const split = ubsSplitDetails();
+          generatedTransfer = { id:uid(), createdAt:new Date().toISOString(), exportedAt:null, type:"transfer", spendingClass:null, title:"Transfer", date:entry.date, memo:`Shared ${entry.title} · ${split.percentage}%`, accountId:split.from.id, toAccountId:split.to.id, amount:split.amount.toFixed(2), currency:"CHF", accountCurrency:"CHF", fxRate:null, fxDate:entry.date, fxSource:"not-applicable", chfAmount:split.amount.toFixed(2), generatedFrom:entry.id };
+          state.entries.push(generatedTransfer);
+        }
         if (!state.config.categories.includes(entry.title) && type !== "transfer") state.config.categories.push(entry.title);
-        $("saved-copy").textContent = entry.currency === "EUR" && entry.type !== "transfer" && !entry.chfAmount ? "Saved on this device. Add a CHF value when you are ready to export." : "Saved on this device and ready for CSV export.";
-        persist(); renderSettings(); renderEntries(); transactionCurrency = null; manualFx = false; editingId = null; type = null; spendingClass = null; fxSource = "manual"; customCategoryMode = false; $("capture-form").reset(); $("date").value = today(); $("fx-date").value = today(); $("fx-rate").value = ""; renderOptions(); currentStep = "done"; updateTypeUI(); setStatus("");
+        $("saved-copy").textContent = generatedTransfer ? `Saved the expense and a ${money(generatedTransfer.amount, "CHF")} reimbursement transfer.` : entry.currency === "EUR" && entry.type !== "transfer" && !entry.chfAmount ? "Saved on this device. Add a CHF value when you are ready to export." : "Saved on this device and ready for CSV export.";
+        persist(); renderSettings(); renderEntries(); transactionCurrency = null; manualFx = false; ubsSplitChoice = null; editingId = null; type = null; spendingClass = null; fxSource = "manual"; customCategoryMode = false; $("capture-form").reset(); $("date").value = today(); $("fx-date").value = today(); $("fx-rate").value = ""; renderOptions(); currentStep = "done"; updateTypeUI(); setStatus("");
       }
       async function fetchFx() {
         if (!needsFx()) { setStatus("A rate is required only when EUR is involved.", "error"); return; }
@@ -429,9 +473,18 @@
         link.href = URL.createObjectURL(blob); link.download = `gnucash-mobile-${today()}.csv`; document.body.append(link); link.click(); link.remove(); URL.revokeObjectURL(link.href);
         const exportedAt = new Date().toISOString(); state.entries = state.entries.map((entry) => pending.some((item) => item.id === entry.id) ? { ...entry, exportedAt } : entry); persist(); renderEntries(); setStatus(`Downloaded ${pending.length} transaction${pending.length === 1 ? "" : "s"} as CSV. Review it in GnuCash before import.`, "good");
       }
+      function markUnexported(id) {
+        const entry = state.entries.find((item) => item.id === id);
+        if (!entry?.exportedAt) return;
+        state.entries = state.entries.map((item) => item.id === id ? { ...item, exportedAt:null } : item);
+        persist(); renderEntries(); setStatus(`${entry.title || "Transaction"} will be included in the next CSV export.`, "good");
+      }
       function saveSettings() {
+        const nicoShare = number($("nico-share").value), gioShare = number($("gio-share").value);
+        if (!(nicoShare > 0) || !(gioShare > 0) || Math.abs(nicoShare + gioShare - 100) > 0.000001) return setStatus("Nico and Gio shares must be positive and total 100%.", "error");
         state.config.accounts.forEach((item) => { item.label = document.querySelector(`[data-setting-label="${item.id}"]`).value.trim() || item.label; item.path = document.querySelector(`[data-setting-path="${item.id}"]`).value.trim() || item.path; item.currency = document.querySelector(`[data-setting-currency="${item.id}"]`).value; });
         state.config.necessaryPath = $("necessary-path").value.trim() || defaults.necessaryPath; state.config.leisurePath = $("leisure-path").value.trim() || defaults.leisurePath;
+        state.config.nicoSharePercent = nicoShare; state.config.gioSharePercent = gioShare;
         state.config.categories = $("categories").value.split(",").map((value) => value.trim()).filter(Boolean);
         persist(); renderOptions(); renderSettings(); renderEntries(); updateFxUI(); setStatus("Settings saved locally.", "good");
       }
@@ -470,11 +523,17 @@
         transactionCurrency = button.dataset.currency; updateCurrencyChoices(); updateFxUI(); advanceAfterChoice();
       }));
       $("add-export-fx").addEventListener("click", () => { manualFx = true; currentStep = "fx"; updateFxUI(); updateStepUI(); });
+      document.querySelectorAll("[data-ubs-split]").forEach((button) => button.addEventListener("click", () => {
+        ubsSplitChoice = button.dataset.ubsSplit === "yes";
+        document.querySelectorAll("[data-ubs-split]").forEach((choice) => { const selected = choice === button; choice.classList.toggle("selected", selected); choice.setAttribute("aria-pressed", String(selected)); });
+        cancelAdvance();
+        advanceTimer = setTimeout(() => { advanceTimer = null; validateAndSave({ preventDefault() {} }); }, 500);
+      }));
       $("fetch-fx").addEventListener("click", fetchFx); $("export-csv").addEventListener("click", exportCsv); $("save-settings").addEventListener("click", saveSettings);
       $("new-entry").addEventListener("click", resetForm);
       $("backup-data").addEventListener("click", backupData); $("restore-data").addEventListener("click", () => $("restore-file").click()); $("restore-file").addEventListener("change", (event) => restoreData(event.target.files?.[0]));
       $("clear-exported").addEventListener("click", () => { const count = state.entries.filter((item) => item.exportedAt).length; if (!count) return setStatus("There are no exported drafts to clear.", "error"); if (confirm(`Remove ${count} exported draft${count === 1 ? "" : "s"} from this device?`)) { state.entries = state.entries.filter((item) => !item.exportedAt); persist(); renderEntries(); setStatus("Exported drafts removed from this device.", "good"); } });
-      $("entries").addEventListener("click", (event) => { const edit = event.target.closest("[data-edit]"), remove = event.target.closest("[data-delete]"); if (edit) loadEntry(state.entries.find((item) => item.id === edit.dataset.edit)); if (remove) { const entry = state.entries.find((item) => item.id === remove.dataset.delete); if (entry && confirm(`Delete ${entry.title}?`)) { state.entries = state.entries.filter((item) => item.id !== entry.id); persist(); renderEntries(); if (editingId === entry.id) resetForm(); } } });
+      $("entries").addEventListener("click", (event) => { const edit = event.target.closest("[data-edit]"), unexport = event.target.closest("[data-unexport]"), remove = event.target.closest("[data-delete]"); if (edit) loadEntry(state.entries.find((item) => item.id === edit.dataset.edit)); if (unexport) markUnexported(unexport.dataset.unexport); if (remove) { const entry = state.entries.find((item) => item.id === remove.dataset.delete); if (entry && confirm(`Delete ${entry.title}?`)) { state.entries = state.entries.filter((item) => item.id !== entry.id); persist(); renderEntries(); if (editingId === entry.id) resetForm(); } } });
       document.querySelectorAll("[data-nav]").forEach((button) => button.addEventListener("click", () => showView(button.dataset.nav)));
       document.querySelectorAll("[data-date-offset]").forEach((button) => button.addEventListener("click", () => { const date = new Date(); date.setDate(date.getDate() + Number(button.dataset.dateOffset)); $("date").value = dateString(date); updateDateChoices(); advanceAfterChoice(); }));
       $("date").addEventListener("focus", cancelAdvance);

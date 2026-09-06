@@ -18,7 +18,7 @@ function capture() {
     window:{scrollTo(){}}, clearTimeout(){}, setTimeout(){}, console,
   });
   const end = script.indexOf('      document.querySelectorAll("[data-type]").forEach((button) => button.addEventListener');
-  vm.runInContext(script.slice(0, end) + '\n globalThis.api = { splitRows, needsFx, stepsForType, validateAndSave, loadEntry, resetForm, read:()=>state.entries }; })();', context);
+  vm.runInContext(script.slice(0, end) + '\n globalThis.api = { splitRows, needsFx, stepsForType, validateAndSave, loadEntry, resetForm, markUnexported, ubsSplitDetails, chooseUbs:(value)=>{ubsSplitChoice=value;currentStep="ubs-split"}, setShares:(nico,gio)=>{state.config.nicoSharePercent=nico;state.config.gioSharePercent=gio}, read:()=>state.entries }; })();', context);
   const configure = (accountId, currency, type = 'expense', to = '') => {
     // Set through loadEntry so the same restoration path used by real saved drafts is exercised.
     context.api.loadEntry({id:'test-id',type,spendingClass:'Necessary',title:'Food',date:'2026-09-06',amount:'100',currency,accountId,toAccountId:to,fxRate:null,chfAmount:currency === 'CHF' ? '100' : null});
@@ -88,4 +88,36 @@ test('legacy EUR drafts retain their explicit conversion on export', () => {
   const rows = c.api.splitRows({id:'old',accountId:'revg',type:'expense',spendingClass:'Necessary',currency:'EUR',amount:'100',fxRate:'0.95',chfAmount:'95'});
   assert.equal(rows[0][7],'-100.00'); assert.equal(rows[1][7],'100.00');
   assert.equal(rows[1][8],'0.950000');
+});
+
+test('UBS shared expense generates the reimbursement from the other account', () => {
+  for (const [payer,from,percentage,amount] of [['ubsg','ubsn',43,'43.00'],['ubsn','ubsg',57,'57.00']]) {
+    const c = capture(); c.configure(payer,'CHF');
+    c.api.chooseUbs(true); c.api.validateAndSave({preventDefault(){}});
+    const [expense,transfer] = c.api.read();
+    assert.equal(expense.accountId,payer);
+    assert.equal(transfer.type,'transfer'); assert.equal(transfer.accountId,from); assert.equal(transfer.toAccountId,payer);
+    assert.equal(transfer.amount,amount); assert.equal(transfer.generatedFrom,expense.id);
+    assert.match(transfer.memo,new RegExp(`${percentage}%`));
+  }
+});
+
+test('configured UBS shares drive generated transfer amounts', () => {
+  const c = capture(); c.api.setShares(40,60); c.configure('ubsg','CHF');
+  assert.equal(c.api.ubsSplitDetails().percentage,40);
+  c.api.chooseUbs(true); c.api.validateAndSave({preventDefault(){}});
+  assert.equal(c.api.read()[1].amount,'40.00');
+});
+
+test('declining UBS split saves only the expense', () => {
+  const c = capture(); c.configure('ubsn','CHF'); c.api.chooseUbs(false);
+  c.api.validateAndSave({preventDefault(){}});
+  assert.equal(c.api.read().length,1);
+});
+
+test('marking an exported draft unexported preserves it for the next CSV', () => {
+  const c = capture(); c.configure('cumulus','CHF'); c.api.validateAndSave({preventDefault(){}});
+  const entry = c.api.read()[0]; entry.exportedAt = '2026-09-06T12:00:00Z';
+  c.api.markUnexported(entry.id);
+  assert.equal(c.api.read().length,1); assert.equal(c.api.read()[0].exportedAt,null);
 });

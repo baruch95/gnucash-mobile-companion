@@ -14,6 +14,8 @@ The standalone HTML uses three bottom-navigation destinations: Capture, Drafts, 
 
 The interface uses system fonts and inline styles/scripts, with no new network dependencies. Existing browser storage and CSV/backup formats are retained. Dates default to the device's local calendar day.
 
+Each exported draft has a **Mark unexported** action. It clears only that draft's export marker so the transaction is included in the next CSV download; the draft itself is unchanged.
+
 Validation: JavaScript syntax, static HTML/reference checks, and `node --test tests/capture.test.cjs` for currency selection, saved drafts, and balanced CSV splits. Visual checks on a physical phone and Safari remain to be done.
 
 ## Revolut currency selection
@@ -23,5 +25,7 @@ REV-G (EUR) and REV-N2 (CHF) ask for the transaction currency immediately after 
 Native EUR expenses/refunds can be saved without a CHF conversion. To export them to the configured CHF expense account, open Edit and use **Add CHF value for CSV**. Export reports missing conversions instead of assuming a rate. Existing drafts and backups remain readable; new drafts retain transaction currency separately from account currency.
 
 Today and Yesterday highlight the selected date and advance after 500 ms. Selecting another shortcut restarts the timer; manual date editing or navigating away cancels it.
+
+Shared UBS expenses can generate a second transfer draft after the expense is entered. When UBS-G pays, UBS-N reimburses Nico's configured share; when UBS-N pays, UBS-G reimburses Gio's configured share. Settings expose both percentages, defaulting to 43% and 57%, and require them to total 100%.
 
 REV-G exports always use EUR as the GnuCash transaction currency. CHF receipt amounts are converted with the explicit rate and retained in the memo; CHF account amounts are represented through the split Price. Capture IDs are kept only in the Transaction ID column and are never added to a split memo.
