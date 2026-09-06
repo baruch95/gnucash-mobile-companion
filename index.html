@@ -118,6 +118,9 @@
           <div id="account-settings"></div>
           <div class="form-grid"><label class="wide">Necessary expense account <input id="necessary-path" /></label><label class="wide">Leisure expense account <input id="leisure-path" /></label><label class="wide">Categories (comma separated) <input id="categories" /></label></div>
           <button type="button" id="save-settings" class="primary">Save settings</button>
+          <div class="divider"></div><p class="eyebrow">Backup</p><p class="hint">Save drafts and settings as a JSON backup before changing phones or clearing browser data.</p>
+          <div class="actions"><button type="button" id="backup-data">Download backup</button><button type="button" id="restore-data">Restore backup</button></div><input id="restore-file" class="hidden" type="file" accept="application/json,.json" />
+          <p id="backup-status" class="hint" role="status"></p>
           <p class="hint">Import the CSV through GnuCash’s transaction CSV importer. Map <code>Transaction ID</code> to transaction ID, and the split fields to their matching columns. Keep the rows with the same ID together as one transaction. The first desktop import should be reviewed before committing.</p>
         </div>
       </details>
@@ -326,6 +329,27 @@
         state.config.categories = $("categories").value.split(",").map((value) => value.trim()).filter(Boolean);
         persist(); renderOptions(); renderSettings(); renderEntries(); updateFxUI(); setStatus("Settings saved locally.", "good");
       }
+      function backupData() {
+        const payload = { format:"gnucash-mobile-companion-backup", version:1, exportedAt:new Date().toISOString(), data:state };
+        const blob = new Blob([JSON.stringify(payload, null, 2)], { type:"application/json" }); const link = document.createElement("a");
+        link.href = URL.createObjectURL(blob); link.download = `gnucash-mobile-backup-${today()}.json`; document.body.append(link); link.click(); link.remove(); URL.revokeObjectURL(link.href);
+        $("backup-status").textContent = "Backup downloaded. Keep it somewhere you control.";
+      }
+      function restoreData(file) {
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = () => {
+          try {
+            const payload = JSON.parse(String(reader.result)); const restored = payload?.data;
+            if (payload?.format !== "gnucash-mobile-companion-backup" || payload?.version !== 1 || !restored || !Array.isArray(restored.entries) || !restored.config || !Array.isArray(restored.config.accounts)) throw new Error("That is not a valid mobile companion backup.");
+            if (!confirm(`Replace this device's ${state.entries.length} current draft${state.entries.length === 1 ? "" : "s"} with ${restored.entries.length} restored draft${restored.entries.length === 1 ? "" : "s"}?`)) return;
+            state = { entries:restored.entries, config:{ ...clone(defaults), ...restored.config, accounts:restored.config.accounts, categories:Array.isArray(restored.config.categories) ? restored.config.categories : clone(defaults.categories) } };
+            persist(); resetForm(); renderSettings(); renderEntries(); $("backup-status").textContent = `Restored ${state.entries.length} draft${state.entries.length === 1 ? "" : "s"} from backup.`;
+          } catch (error) { $("backup-status").textContent = error instanceof Error ? error.message : "Could not restore that backup."; }
+          $("restore-file").value = "";
+        };
+        reader.readAsText(file);
+      }
       document.querySelectorAll("[data-type]").forEach((button) => button.addEventListener("click", () => { type = button.dataset.type; updateTypeUI(); moveStep(1); }));
       document.querySelectorAll("[data-class]").forEach((button) => button.addEventListener("click", () => { spendingClass = button.dataset.class; updateTypeUI(); moveStep(1); }));
       document.querySelectorAll("[data-next]").forEach((button) => button.addEventListener("click", () => moveStep(1)));
@@ -337,6 +361,7 @@
       $("capture-form").addEventListener("submit", validateAndSave); $("account").addEventListener("change", updateFxUI); $("to-account").addEventListener("change", updateFxUI); $("amount").addEventListener("input", calculateChf); $("fx-rate").addEventListener("input", () => { fxSource = "manual"; calculateChf(); }); $("date").addEventListener("change", () => { if (!$("fx-date").value) $("fx-date").value = $("date").value; });
       $("fetch-fx").addEventListener("click", fetchFx); $("export-csv").addEventListener("click", exportCsv); $("save-settings").addEventListener("click", saveSettings);
       $("new-entry").addEventListener("click", resetForm);
+      $("backup-data").addEventListener("click", backupData); $("restore-data").addEventListener("click", () => $("restore-file").click()); $("restore-file").addEventListener("change", (event) => restoreData(event.target.files?.[0]));
       $("clear-exported").addEventListener("click", () => { const count = state.entries.filter((item) => item.exportedAt).length; if (!count) return setStatus("There are no exported drafts to clear.", "error"); if (confirm(`Remove ${count} exported draft${count === 1 ? "" : "s"} from this device?`)) { state.entries = state.entries.filter((item) => !item.exportedAt); persist(); renderEntries(); setStatus("Exported drafts removed from this device.", "good"); } });
       $("entries").addEventListener("click", (event) => { const edit = event.target.closest("[data-edit]"), remove = event.target.closest("[data-delete]"); if (edit) loadEntry(state.entries.find((item) => item.id === edit.dataset.edit)); if (remove) { const entry = state.entries.find((item) => item.id === remove.dataset.delete); if (entry && confirm(`Delete ${entry.title}?`)) { state.entries = state.entries.filter((item) => item.id !== entry.id); persist(); renderEntries(); if (editingId === entry.id) resetForm(); } } });
       renderOptions(); renderSettings(); renderEntries(); resetForm();
