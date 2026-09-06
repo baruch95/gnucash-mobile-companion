@@ -14,4 +14,12 @@ The standalone HTML uses three bottom-navigation destinations: Capture, Drafts, 
 
 The interface uses system fonts and inline styles/scripts, with no new network dependencies. Existing browser storage and CSV/backup formats are retained. Dates default to the device's local calendar day.
 
-Validation: JavaScript syntax and static HTML/reference checks. Visual checks on a physical phone and Safari remain to be done.
+Validation: JavaScript syntax, static HTML/reference checks, and `node --test tests/capture.test.cjs` for currency selection, saved drafts, and balanced CSV splits. Visual checks on a physical phone and Safari remain to be done.
+
+## Revolut currency selection
+
+REV-G (EUR) and REV-N2 (CHF) ask for the transaction currency immediately after account selection. Cross-currency entries request an explicit EUR/CHF rate; native-currency Revolut entries skip that step. Transfers also require a rate when the receiving account uses a different currency.
+
+Native EUR expenses/refunds can be saved without a CHF conversion. To export them to the configured CHF expense account, open Edit and use **Add CHF value for CSV**. Export reports missing conversions instead of assuming a rate. Existing drafts and backups remain readable; new drafts retain transaction currency separately from account currency.
+
+Today and Yesterday highlight the selected date and advance after 500 ms. Selecting another shortcut restarts the timer; manual date editing or navigating away cancels it.

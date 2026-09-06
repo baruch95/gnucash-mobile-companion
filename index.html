@@ -83,6 +83,11 @@
           <div id="account-choices" class="account-choices" role="group" aria-label="Account choices"></div>
           <div class="step-actions"><button type="button" data-back>Back</button></div>
         </section>
+        <section class="step hidden" data-step="currency">
+          <p class="eyebrow">Revolut transaction</p><h3>Which currency?</h3><p id="currency-copy" class="step-copy">Choose the currency of the transaction.</p>
+          <div class="choice-grid" role="group" aria-label="Transaction currency"><button type="button" data-currency="CHF">CHF<small>Swiss francs</small></button><button type="button" data-currency="EUR">EUR<small>Euros</small></button></div>
+          <div class="step-actions"><button type="button" data-back>Back</button></div>
+        </section>
         <section class="step hidden" data-step="to-account">
           <p class="eyebrow">Transfer destination</p><h3>Where is the money going?</h3><p class="step-copy">Tap the receiving account to continue.</p>
           <div id="to-account-choices" class="account-choices" role="group" aria-label="Destination account choices"></div>
@@ -113,11 +118,12 @@
         </section>
         <section class="step hidden" data-step="note">
           <p class="eyebrow">Review and save</p><h3>All looking right?</h3><p class="step-copy">Check your entry and add a detail if useful.</p><div id="review-summary" class="review"></div>
+          <div id="optional-fx" class="hidden"><p class="hint">Save now without conversion. A CHF value is needed before exporting to your CHF expense account.</p><button type="button" id="add-export-fx">Add CHF value for CSV</button></div>
           <label class="wide">Detail / merchant <input id="memo" autocomplete="off" placeholder="Optional — e.g. Coop Bahnhof" /></label>
           <div class="step-actions"><button type="button" data-back>Back</button><button id="save-entry" class="primary" type="submit">Save draft</button></div>
         </section>
         <section class="step hidden" data-step="done">
-          <div class="success-icon" aria-hidden="true">✓</div><p class="eyebrow">Ready for export</p><h3>Details taken care of.</h3><p class="step-copy">It is stored on this device and ready for the next CSV export.</p>
+          <div class="success-icon" aria-hidden="true">✓</div><p class="eyebrow">Draft saved</p><h3>Details taken care of.</h3><p id="saved-copy" class="step-copy">It is stored on this device.</p>
           <button type="button" id="new-entry" class="primary">Add another transaction</button>
         </section>
         <p id="form-status" class="status" role="status"></p>
@@ -170,6 +176,7 @@
         categories: ["Food", "Transport", "Shopping", "Fun", "Health", "Housing", "Work", "Cat"]
       };
       let state = loadState();
+      let transactionCurrency = null, manualFx = false;
       let type = null, spendingClass = null, editingId = null, fxSource = "manual", currentStep = "type", customCategoryMode = false;
       const $ = (id) => document.getElementById(id);
       const dateString = (date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
@@ -181,7 +188,8 @@
         window.scrollTo({ top:0, behavior:"instant" });
       }
       function renderReview() {
-        const rows = [["Type", type ? type[0].toUpperCase() + type.slice(1) : "—"], ...(type === "transfer" ? [["To", selectedToAccount()?.label || "—"]] : [["Class", spendingClass || "—"], ["Category", $("title").value]]), ["Account", selectedAccount()?.label || "—"], ["Date", $("date").value], ["Amount", money($("amount").value, selectedCurrency())], ...(needsFx() ? [["CHF equivalent", money($("chf-amount").value, "CHF")]] : [])];
+        const rows = [["Type", type ? type[0].toUpperCase() + type.slice(1) : "—"], ...(type === "transfer" ? [["To", selectedToAccount()?.label || "—"]] : [["Class", spendingClass || "—"], ["Category", $("title").value]]), ["Account", selectedAccount()?.label || "—"], ["Date", $("date").value], ["Amount", money($("amount").value, selectedCurrency())], ...(number($("chf-amount").value) > 0 ? [["CHF equivalent", money($("chf-amount").value, "CHF")]] : [])];
+        $("optional-fx").classList.toggle("hidden", !(selectedCurrency() === "EUR" && type !== "transfer" && !needsFx()));
         $("review-summary").innerHTML = `<dl>${rows.map(([label, value]) => `<div><dt>${escapeHtml(label)}</dt><dd>${escapeHtml(value)}</dd></div>`).join("")}</dl>`;
       }
 
@@ -206,7 +214,13 @@
       function account(id) { return state.config.accounts.find((item) => item.id === id); }
       function selectedAccount() { return account($("account").value); }
       function selectedToAccount() { return account($("to-account").value); }
-      function selectedCurrency() { const source = selectedAccount(); return source ? source.currency : "CHF"; }
+      function isRevolut() { return ["revg", "revn2"].includes(selectedAccount()?.id); }
+      function selectedCurrency() { return (isRevolut() && transactionCurrency) || selectedAccount()?.currency || "CHF"; }
+      function clearCurrencyChoice() { transactionCurrency = null; manualFx = false; $("fx-rate").value = ""; $("chf-amount").value = ""; fxSource = "manual"; }
+      function updateCurrencyChoices() {
+        document.querySelectorAll("[data-currency]").forEach((button) => { const selected = button.dataset.currency === transactionCurrency; button.classList.toggle("selected", selected); button.setAttribute("aria-pressed", String(selected)); });
+        $("currency-copy").textContent = `${selectedAccount()?.label || "Revolut"} is a ${selectedAccount()?.currency || "CHF"} account. Choose the currency shown on the transaction.`;
+      }
       function setStatus(message, kind = "") { const view = document.querySelector("[data-nav][aria-current=page]")?.dataset.nav; const element = $(view === "drafts" ? "draft-status" : view === "settings" ? "settings-status" : "form-status"); element.textContent = message; element.className = `status ${kind}`; }
 
       function renderOptions() {
@@ -260,10 +274,21 @@
       }
       function stepsForType() {
         if (!type) return ["type"];
-        const steps = type === "transfer" ? ["type", "account", "to-account"] : ["type", "class", "category", "account"];
+        const steps = type === "transfer" ? ["type", "account"] : ["type", "class", "category", "account"];
+        if (isRevolut()) steps.push("currency");
+        if (type === "transfer") steps.push("to-account");
         steps.push("date", "amount"); if (needsFx()) steps.push("fx"); steps.push("note"); return steps;
       }
+      function updateDateChoices() {
+        document.querySelectorAll("[data-date-offset]").forEach((button) => {
+          const date = new Date(); date.setDate(date.getDate() + Number(button.dataset.dateOffset));
+          const selected = $("date").value === dateString(date);
+          button.classList.toggle("selected", selected);
+          button.setAttribute("aria-pressed", String(selected));
+        });
+      }
       function updateStepUI() {
+        updateDateChoices(); updateCurrencyChoices();
         $("capture-context").textContent = editingId ? "Editing draft" : type ? type[0].toUpperCase() + type.slice(1) : "New entry";
         $("capture-progress").value = currentStep === "done" ? 100 : type ? (stepsForType().indexOf(currentStep) / (stepsForType().length - 1)) * 100 : 0;
         if (currentStep === "note") renderReview();
@@ -274,6 +299,7 @@
         if (currentStep === "amount") { $("amount-copy").textContent = `Enter the amount in ${selectedCurrency()}.`; $("amount").focus({ preventScroll:true }); $("amount").select(); }
       }
       function stepIsValid(step) {
+        if (step === "currency" && !transactionCurrency) { setStatus("Choose CHF or EUR.", "error"); return false; }
         if (step === "date" && !$("date").value) { setStatus("Choose a date.", "error"); return false; }
         if (step === "category" && !$("title").value.trim()) { setStatus("Choose a category or add one with Other +.", "error"); return false; }
         if (step === "account" && !selectedAccount()) { setStatus("Choose an account.", "error"); return false; }
@@ -299,28 +325,31 @@
         currentStep = steps[Math.max(0, Math.min(steps.length - 1, index + direction))]; updateStepUI(); window.scrollTo({ top:0, behavior:"smooth" });
       }
       function needsFx() {
-        if (selectedCurrency() === "EUR") return true;
-        return type === "transfer" && selectedToAccount()?.currency === "EUR";
+        if (manualFx) return true;
+        if (selectedAccount() && selectedCurrency() !== selectedAccount().currency) return true;
+        if (type === "transfer") return Boolean(selectedToAccount() && selectedCurrency() !== selectedToAccount().currency);
+        return !isRevolut() && selectedCurrency() === "EUR";
       }
       function updateFxUI() {
         const needed = needsFx();
-        if (!needed) { $("fx-date").value = $("date").value; calculateChf(); }
+        if (!needed && !number($("fx-rate").value)) $("fx-date").value = $("date").value;
+        if (!$("chf-amount").value || selectedCurrency() === "CHF") calculateChf();
         if (needed && !$("fx-date").value) $("fx-date").value = $("date").value;
       }
       function calculateChf() {
         const amount = number($("amount").value), rate = number($("fx-rate").value);
-        if (amount && rate && selectedCurrency() === "EUR") $("chf-amount").value = (amount * rate).toFixed(2);
+        if (selectedCurrency() === "EUR") $("chf-amount").value = amount && rate ? (amount * rate).toFixed(2) : "";
         if (amount && selectedCurrency() === "CHF") $("chf-amount").value = amount.toFixed(2);
       }
       function resetForm() {
         cancelAdvance();
-        editingId = null; type = null; spendingClass = null; fxSource = "manual"; currentStep = "type"; customCategoryMode = false;
+        transactionCurrency = null; manualFx = false; editingId = null; type = null; spendingClass = null; fxSource = "manual"; currentStep = "type"; customCategoryMode = false;
         $("capture-form").reset(); $("date").value = today(); $("fx-date").value = today(); $("fx-rate").value = "";
         renderOptions(); updateTypeUI(); setStatus(""); $("save-entry").textContent = "Save draft";
       }
       function loadEntry(entry) {
         cancelAdvance();
-        showView("capture"); editingId = entry.id; type = entry.type; spendingClass = entry.spendingClass || "Necessary";
+        showView("capture"); transactionCurrency = entry.currency; manualFx = false; editingId = entry.id; type = entry.type; spendingClass = entry.spendingClass || "Necessary";
         renderOptions(); $("date").value = entry.date; $("title").value = entry.title || ""; $("memo").value = entry.memo || ""; $("amount").value = entry.amount; $("account").value = entry.accountId; $("to-account").value = entry.toAccountId || state.config.accounts[0].id;
         $("fx-rate").value = entry.fxRate || ""; $("fx-date").value = entry.fxDate || entry.date; $("chf-amount").value = entry.chfAmount || ""; fxSource = entry.fxSource || "manual";
         currentStep = "note"; customCategoryMode = Boolean(entry.title && !state.config.categories.includes(entry.title)); updateTypeUI(); $("save-entry").textContent = "Update draft"; setStatus("Editing draft. Save to keep your changes.", "good"); window.scrollTo({ top:0, behavior:"smooth" });
@@ -335,11 +364,15 @@
         const fxRequired = needsFx();
         if (fxRequired && (!rate || rate <= 0 || !chfAmount || chfAmount <= 0)) return setStatus("Fetch or enter a EUR → CHF rate and CHF equivalent before saving.", "error");
         if (!type || (type !== "transfer" && !spendingClass) || !$("date").value) return setStatus("Complete the transaction type, class, and date before saving.", "error");
+        if (isRevolut() && !transactionCurrency) return setStatus("Choose the transaction currency before saving.", "error");
+        const savedChf = selectedCurrency() === "CHF" ? amount : rate > 0 && chfAmount > 0 ? chfAmount : null;
+        const savedRate = rate > 0 && savedChf > 0 ? rate.toString() : null;
         const prior = state.entries.find((item) => item.id === editingId);
-        const entry = { id: editingId || uid(), createdAt: prior?.createdAt || new Date().toISOString(), exportedAt: prior?.exportedAt || null, type, spendingClass: type === "transfer" ? null : spendingClass, title: type === "transfer" ? "Transfer" : $("title").value.trim(), date: $("date").value, memo: $("memo").value.trim(), accountId: source.id, toAccountId: type === "transfer" ? destination.id : null, amount: amount.toFixed(2), currency: source.currency, fxRate: fxRequired ? rate.toString() : "1", fxDate: fxRequired ? $("fx-date").value : $("date").value, fxSource: fxRequired ? fxSource : "not-applicable", chfAmount: (fxRequired ? chfAmount : amount).toFixed(2) };
+        const entry = { id: editingId || uid(), createdAt: prior?.createdAt || new Date().toISOString(), exportedAt: prior?.exportedAt || null, type, spendingClass: type === "transfer" ? null : spendingClass, title: type === "transfer" ? "Transfer" : $("title").value.trim(), date: $("date").value, memo: $("memo").value.trim(), accountId: source.id, toAccountId: type === "transfer" ? destination.id : null, amount: amount.toFixed(2), currency: selectedCurrency(), accountCurrency: source.currency, fxRate: savedRate, fxDate: savedRate ? ($("fx-date").value || $("date").value) : $("date").value, fxSource: savedRate ? fxSource : "not-applicable", chfAmount: savedChf === null ? null : savedChf.toFixed(2) };
         if (prior) state.entries = state.entries.map((item) => item.id === entry.id ? entry : item); else state.entries.push(entry);
         if (!state.config.categories.includes(entry.title) && type !== "transfer") state.config.categories.push(entry.title);
-        persist(); renderSettings(); renderEntries(); editingId = null; type = null; spendingClass = null; fxSource = "manual"; customCategoryMode = false; $("capture-form").reset(); $("date").value = today(); $("fx-date").value = today(); $("fx-rate").value = ""; renderOptions(); currentStep = "done"; updateTypeUI(); setStatus("");
+        $("saved-copy").textContent = entry.currency === "EUR" && entry.type !== "transfer" && !entry.chfAmount ? "Saved on this device. Add a CHF value when you are ready to export." : "Saved on this device and ready for CSV export.";
+        persist(); renderSettings(); renderEntries(); transactionCurrency = null; manualFx = false; editingId = null; type = null; spendingClass = null; fxSource = "manual"; customCategoryMode = false; $("capture-form").reset(); $("date").value = today(); $("fx-date").value = today(); $("fx-rate").value = ""; renderOptions(); currentStep = "done"; updateTypeUI(); setStatus("");
       }
       async function fetchFx() {
         if (!needsFx()) { setStatus("A rate is required only when EUR is involved.", "error"); return; }
@@ -363,27 +396,28 @@
       function csvCell(value) { const text = String(value ?? ""); return /[",\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text; }
       function splitRows(entry) {
         const source = account(entry.accountId), destination = entry.type === "transfer" ? account(entry.toAccountId) : null;
-        const rate = Number(entry.fxRate || 1), sourceAmount = Number(entry.amount), chfAmount = Number(entry.chfAmount);
-        const transactionCurrency = entry.currency;
-        const hasEur = entry.currency === "EUR" || (entry.type === "transfer" && destination?.currency === "EUR");
-        const memo = [entry.memo, `capture:${entry.id}`, hasEur ? `FX EUR/CHF ${entry.fxRate} (${entry.fxDate}, ${entry.fxSource || "manual"})` : ""].filter(Boolean).join(" · ");
-        const refundSign = entry.type === "refund" ? 1 : -1;
-        const first = { account: source.path, amount: refundSign * sourceAmount, currency: source.currency, value: refundSign * sourceAmount };
-        let second;
-        if (entry.type === "transfer") {
-          const destinationAmount = destination.currency === "CHF" ? chfAmount : chfAmount / rate;
-          second = { account: destination.path, amount: destinationAmount, currency: destination.currency, value: sourceAmount };
-        } else {
-          const sign = entry.type === "refund" ? -1 : 1;
-          second = { account: entry.spendingClass === "Necessary" ? state.config.necessaryPath : state.config.leisurePath, amount: sign * chfAmount, currency: "CHF", value: sign * sourceAmount };
-        }
-        return [first, second].map((split) => [entry.id, entry.date, entry.title, memo, split.account, split.amount.toFixed(2), split.currency, transactionCurrency, split.value.toFixed(2), entry.fxRate || "1", entry.chfAmount, entry.type, entry.spendingClass || ""]);
+        const rate = number(entry.fxRate), amount = number(entry.amount), chfAmount = number(entry.chfAmount);
+        const currency = entry.currency, sourceCurrency = entry.accountCurrency || source?.currency;
+        if (!source || (entry.type === "transfer" && !destination)) throw new Error("An account is missing. Edit this draft before exporting.");
+        const converted = (target) => {
+          if (target === currency) return amount;
+          if (!(rate > 0) || !(chfAmount > 0)) throw new Error(`Add a CHF value to ${entry.title || "Transfer"} before exporting. Open Edit, then Add CHF value for CSV.`);
+          return target === "CHF" ? chfAmount : chfAmount / rate;
+        };
+        const memo = [entry.memo, `capture:${entry.id}`, rate > 0 ? `FX EUR/CHF ${entry.fxRate} (${entry.fxDate}, ${entry.fxSource || "manual"})` : ""].filter(Boolean).join(" · ");
+        const sign = entry.type === "refund" ? 1 : -1;
+        const first = { account:source.path, amount:sign * converted(sourceCurrency), currency:sourceCurrency, value:sign * amount };
+        const second = entry.type === "transfer"
+          ? { account:destination.path, amount:converted(destination.currency), currency:destination.currency, value:amount }
+          : { account:entry.spendingClass === "Necessary" ? state.config.necessaryPath : state.config.leisurePath, amount:-sign * converted("CHF"), currency:"CHF", value:-sign * amount };
+        return [first, second].map((split) => [entry.id, entry.date, entry.title, memo, split.account, split.amount.toFixed(2), split.currency, currency, split.value.toFixed(2), entry.fxRate || "", entry.chfAmount ?? "", entry.type, entry.spendingClass || ""]);
       }
       function exportCsv() {
         const pending = state.entries.filter((entry) => !entry.exportedAt);
         if (!pending.length) return setStatus("There are no unexported drafts to download.", "error");
         const header = ["Transaction ID", "Date", "Description", "Memo", "Account", "Split amount", "Split currency", "Transaction currency", "Transaction value", "EUR to CHF rate", "CHF equivalent", "Capture type", "Spending class"];
-        const rows = pending.flatMap(splitRows);
+        let rows;
+        try { rows = pending.flatMap(splitRows); } catch (error) { return setStatus(error.message, "error"); }
         const csv = [header, ...rows].map((row) => row.map(csvCell).join(",")).join("\r\n") + "\r\n";
         const blob = new Blob([csv], { type:"text/csv;charset=utf-8" }); const link = document.createElement("a");
         link.href = URL.createObjectURL(blob); link.download = `gnucash-mobile-${today()}.csv`; document.body.append(link); link.click(); link.remove(); URL.revokeObjectURL(link.href);
@@ -422,16 +456,23 @@
       document.querySelectorAll("[data-back]").forEach((button) => button.addEventListener("click", () => moveStep(-1)));
       $("category-choices").addEventListener("click", (event) => { const button = event.target.closest("[data-category]"); if (!button) return; if (button.dataset.category === "other") { cancelAdvance(); customCategoryMode = true; $("title").value = ""; renderChoiceButtons(); $("title").focus(); } else { customCategoryMode = false; $("title").value = button.dataset.category; renderChoiceButtons(); advanceAfterChoice(); } });
       $("add-category").addEventListener("click", () => { const title = $("title").value.trim(); if (!title) return setStatus("Enter a category name first.", "error"); if (!state.config.categories.includes(title)) state.config.categories.push(title); customCategoryMode = false; persist(); renderOptions(); renderSettings(); setStatus(""); advanceAfterChoice(); });
-      $("account-choices").addEventListener("click", (event) => { const button = event.target.closest("[data-account-choice]"); if (!button) return; $("account").value = button.dataset.accountChoice; renderChoiceButtons(); updateFxUI(); advanceAfterChoice(); });
+      $("account-choices").addEventListener("click", (event) => { const button = event.target.closest("[data-account-choice]"); if (!button) return; if ($("account").value !== button.dataset.accountChoice) clearCurrencyChoice(); $("account").value = button.dataset.accountChoice; renderChoiceButtons(); updateFxUI(); advanceAfterChoice(); });
       $("to-account-choices").addEventListener("click", (event) => { const button = event.target.closest("[data-to-account-choice]"); if (!button) return; $("to-account").value = button.dataset.toAccountChoice; renderChoiceButtons(); updateFxUI(); advanceAfterChoice(); });
       $("capture-form").addEventListener("submit", validateAndSave); $("account").addEventListener("change", updateFxUI); $("to-account").addEventListener("change", updateFxUI); $("amount").addEventListener("input", calculateChf); $("fx-rate").addEventListener("input", () => { fxSource = "manual"; calculateChf(); }); $("date").addEventListener("change", () => { if (!$("fx-date").value) $("fx-date").value = $("date").value; });
+      document.querySelectorAll("[data-currency]").forEach((button) => button.addEventListener("click", () => {
+        if (transactionCurrency !== button.dataset.currency) { $("fx-rate").value = ""; $("chf-amount").value = ""; manualFx = false; fxSource = "manual"; }
+        transactionCurrency = button.dataset.currency; updateCurrencyChoices(); updateFxUI(); advanceAfterChoice();
+      }));
+      $("add-export-fx").addEventListener("click", () => { manualFx = true; currentStep = "fx"; updateFxUI(); updateStepUI(); });
       $("fetch-fx").addEventListener("click", fetchFx); $("export-csv").addEventListener("click", exportCsv); $("save-settings").addEventListener("click", saveSettings);
       $("new-entry").addEventListener("click", resetForm);
       $("backup-data").addEventListener("click", backupData); $("restore-data").addEventListener("click", () => $("restore-file").click()); $("restore-file").addEventListener("change", (event) => restoreData(event.target.files?.[0]));
       $("clear-exported").addEventListener("click", () => { const count = state.entries.filter((item) => item.exportedAt).length; if (!count) return setStatus("There are no exported drafts to clear.", "error"); if (confirm(`Remove ${count} exported draft${count === 1 ? "" : "s"} from this device?`)) { state.entries = state.entries.filter((item) => !item.exportedAt); persist(); renderEntries(); setStatus("Exported drafts removed from this device.", "good"); } });
       $("entries").addEventListener("click", (event) => { const edit = event.target.closest("[data-edit]"), remove = event.target.closest("[data-delete]"); if (edit) loadEntry(state.entries.find((item) => item.id === edit.dataset.edit)); if (remove) { const entry = state.entries.find((item) => item.id === remove.dataset.delete); if (entry && confirm(`Delete ${entry.title}?`)) { state.entries = state.entries.filter((item) => item.id !== entry.id); persist(); renderEntries(); if (editingId === entry.id) resetForm(); } } });
       document.querySelectorAll("[data-nav]").forEach((button) => button.addEventListener("click", () => showView(button.dataset.nav)));
-      document.querySelectorAll("[data-date-offset]").forEach((button) => button.addEventListener("click", () => { const date = new Date(); date.setDate(date.getDate() + Number(button.dataset.dateOffset)); $("date").value = dateString(date); }));
+      document.querySelectorAll("[data-date-offset]").forEach((button) => button.addEventListener("click", () => { const date = new Date(); date.setDate(date.getDate() + Number(button.dataset.dateOffset)); $("date").value = dateString(date); updateDateChoices(); advanceAfterChoice(); }));
+      $("date").addEventListener("focus", cancelAdvance);
+      $("date").addEventListener("input", () => { cancelAdvance(); updateDateChoices(); });
       $("entries").addEventListener("click", (event) => { if (event.target.closest("[data-start-capture]")) showView("capture"); });
       // Enter advances the current step; only the review screen can save a draft.
       $("capture-form").addEventListener("keydown", (event) => { if (event.key === "Enter" && event.target.tagName === "INPUT" && currentStep !== "note") { event.preventDefault(); if (currentStep === "category") $("add-category").click(); else moveStep(1); } });
