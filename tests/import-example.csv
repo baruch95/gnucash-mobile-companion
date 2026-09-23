@@ -1,0 +1,5 @@
+Transaction ID,Date,Description,Notes,Commodity/Currency,Memo,Account,Deposit,Price,Value
+example-expense,2026-09-12,Food,,CURRENCY::EUR,,Assets:Test:EUR,-100.00,,-100.00
+example-expense,2026-09-12,Food,,CURRENCY::EUR,,Expenses:Necessary,90.00,1.111111111111,100.00
+example-refund,2026-09-12,Food,,CURRENCY::EUR,,Assets:Test:EUR,10.00,,10.00
+example-refund,2026-09-12,Food,,CURRENCY::EUR,,Expenses:Necessary,-9.00,1.111111111111,-10.00

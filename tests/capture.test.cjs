@@ -6,7 +6,7 @@ const path = require('node:path');
 
 function capture() {
   const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
-  const script = html.split('<script>')[1].split('</script>')[0];
+  const script = fs.readFileSync(path.join(__dirname, '..', 'app.js'), 'utf8');
   const elements = new Map();
   const element = id => {
     if (!elements.has(id)) elements.set(id, { value:'', classList:{toggle(){}}, setAttribute(){}, reset(){}, focus(){}, select(){} });
@@ -14,11 +14,11 @@ function capture() {
   };
   const context = vm.createContext({
     document:{getElementById:element, querySelectorAll:()=>[], querySelector:()=>null},
-    localStorage:{getItem:()=>null, setItem(){}}, crypto:{randomUUID:()=> 'test-id'},
+    localStorage:{getItem:()=>null, setItem(){}}, crypto:{randomUUID:()=> require('node:crypto').randomUUID()}, CaptureCore:require('../core.js'), CaptureStorage:require('../storage.js'), confirm:()=>true,
     window:{scrollTo(){}}, clearTimeout(){}, setTimeout(){}, console,
   });
   const end = script.indexOf('      document.querySelectorAll("[data-type]").forEach((button) => button.addEventListener');
-  vm.runInContext(script.slice(0, end) + '\n globalThis.api = { splitRows, needsFx, stepsForType, canOfferUbsSplit, validateAndSave, loadEntry, resetForm, markUnexported, savePreset, applyPreset, deletePreset, renamePreset, ubsSplitDetails, chooseUbs:(value)=>{ubsSplitChoice=value;currentStep="ubs-split"}, startExpense:(accountId)=>{resetForm();type="expense";spendingClass="Necessary";$("account").value=accountId;currentStep="account"}, setShares:(nico,gio)=>{state.config.nicoSharePercent=nico;state.config.gioSharePercent=gio}, setQuickAmount:(value)=>{$("quick-amount").value=value}, read:()=>state.entries, presets:()=>state.presets, step:()=>currentStep }; })();', context);
+  vm.runInContext(script.slice(0, end) + '\n globalThis.api = { splitRows, markImported, deleteEntry, clearImported, fetchFx, invalidateFx, needsFx, stepsForType, canOfferUbsSplit, validateAndSave, loadEntry, resetForm, markUnexported, savePreset, applyPreset, deletePreset, renamePreset, ubsSplitDetails, chooseUbs:(value)=>{ubsSplitChoice=value;currentStep="ubs-split"}, startExpense:(accountId)=>{resetForm();type="expense";spendingClass="Necessary";$("account").value=accountId;currentStep="account"}, setShares:(nico,gio)=>{state.config.nicoSharePercent=nico;state.config.gioSharePercent=gio}, setQuickAmount:(value)=>{$("quick-amount").value=value}, read:()=>state.entries, presets:()=>state.presets, step:()=>currentStep }; })();', context);
   const configure = (accountId, currency, type = 'expense', to = '') => {
     // Set through loadEntry so the same restoration path used by real saved drafts is exercised.
     context.api.loadEntry({id:'test-id',type,spendingClass:'Necessary',title:'Food',date:'2026-09-06',amount:'100',currency,accountId,toAccountId:to,fxRate:null,chfAmount:currency === 'CHF' ? '100' : null});
@@ -44,12 +44,12 @@ test('quick transaction launcher opens a dedicated list with one preset containe
   const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
   assert.match(html, /data-step="quick-list"/);
   assert.equal((html.match(/id="quick-presets"/g) || []).length, 1);
-  assert.match(html, /Math\.max\(1, progressSteps\.length - 1\)/);
+  assert.match(fs.readFileSync(path.join(__dirname,'..','app.js'),'utf8'), /Math\.max\(1, progressSteps\.length - 1\)/);
   assert.match(html, /id="manage-quick"/);
   assert.match(html, /id="quick-management"/);
   assert.doesNotMatch(html, /data-delete-preset=/);
-  assert.match(html, /data-delete-managed-preset=/);
-  assert.match(html, /data-preset-nickname=/);
+  assert.match(fs.readFileSync(path.join(__dirname,'..','app.js'),'utf8'), /data-delete-managed-preset=/);
+  assert.match(fs.readFileSync(path.join(__dirname,'..','app.js'),'utf8'), /data-preset-nickname=/);
 });
 
 test('Revolut currency determines FX step and appears immediately after account', () => {
@@ -73,14 +73,15 @@ test('foreign Revolut purchases and refunds retain transaction and account amoun
     const entry = c.api.read()[0]; assert.ok(entry);
     assert.equal(entry.currency,currency);
     const rows = c.api.splitRows(entry);
-    assert.equal(rows[0][7], account === 'revg' ? '-111.11' : '-100.00');
+    assert.equal(rows[0][7], account === 'revg' ? '-111.11' : '-90.00');
     assert.equal(rows[0][4],`CURRENCY::${account === 'revg' ? 'EUR' : currency}`);
-    if (account === 'revg') { assert.equal(sourceAmount,'-111.11'); assert.match(rows[0][5], /Original amount 100.00 CHF/); }
+    if (account === 'revg') assert.equal(sourceAmount,'-111.11');
+    assert.equal(rows[0][5],'');
     assert.doesNotMatch(rows[0][5], /capture:|test-id/);
-    assert.equal(Number(rows[0][7]) + Number(rows[1][7]),0);
+    assert.equal(Number(rows[0][9]) + Number(rows[1][9]),0);
     const refund = c.api.splitRows({...entry,type:'refund'});
     assert.equal(Number(refund[0][7]),-Number(rows[0][7]));
-    assert.equal(Number(refund[0][7]) + Number(refund[1][7]),0);
+    assert.equal(Number(refund[0][9]) + Number(refund[1][9]),0);
     c.api.loadEntry(entry); assert.equal(c.api.needsFx(),true);
   }
 });
@@ -94,8 +95,8 @@ test('native EUR draft saves without guessing CHF and requires conversion for ex
   c.api.loadEntry({...entry,fxRate:'0.9',chfAmount:'90'});
   c.api.validateAndSave({preventDefault(){}});
   const rows = c.api.splitRows(c.api.read()[0]);
-  assert.equal(rows[0][7],'-100.00'); assert.equal(rows[1][7],'100.00');
-  assert.equal(rows[1][8],'0.900000');
+  assert.equal(rows[0][7],'-100.00'); assert.equal(rows[1][7],'90.00');
+  assert.ok(Math.abs(Number(rows[1][8])-(100/90))<0.00002);
 });
 
 test('cross-currency transfers convert both account splits and balance transaction values', () => {
@@ -104,16 +105,16 @@ test('cross-currency transfers convert both account splits and balance transacti
   c.api.validateAndSave({preventDefault(){}});
   const rows = c.api.splitRows(c.api.read()[0]);
   assert.equal(rows[0][4],'CURRENCY::EUR'); assert.equal(rows[1][4],'CURRENCY::EUR');
-  assert.equal(rows[0][7],'-111.11'); assert.equal(rows[1][7],'111.11');
-  assert.equal(rows[1][8],'0.900000');
-  assert.equal(Number(rows[0][7]) + Number(rows[1][7]),0);
+  assert.equal(rows[0][7],'-111.11'); assert.equal(rows[1][7],'100.00');
+  assert.ok(Math.abs(Number(rows[1][8])-(100/90))<0.00002);
+  assert.equal(Number(rows[0][9]) + Number(rows[1][9]),0);
 });
 
 test('legacy EUR drafts retain their explicit conversion on export', () => {
   const c = capture();
   const rows = c.api.splitRows({id:'old',accountId:'revg',type:'expense',spendingClass:'Necessary',currency:'EUR',amount:'100',fxRate:'0.95',chfAmount:'95'});
-  assert.equal(rows[0][7],'-100.00'); assert.equal(rows[1][7],'100.00');
-  assert.equal(rows[1][8],'0.950000');
+  assert.equal(rows[0][7],'-100.00'); assert.equal(rows[1][7],'95.00');
+  assert.ok(Math.abs(Number(rows[1][8])-100/95)<0.000000001);
 });
 
 test('UBS shared expense generates the reimbursement from the other account', () => {
@@ -192,4 +193,25 @@ test('quick transaction shortcut can be removed without changing drafts', () => 
   const c = capture(); c.configure('cumulus','CHF'); c.api.validateAndSave({preventDefault(){}}); c.api.savePreset(c.api.read()[0]);
   c.api.deletePreset(c.api.presets()[0].id);
   assert.equal(c.api.presets().length,0); assert.equal(c.api.read().length,1);
+});
+
+
+test('editing downloaded drafts flags corrections and blocks imported cleanup', () => {
+  const c=capture(); c.configure('cumulus','CHF'); c.api.validateAndSave({preventDefault(){}});
+  const entry=c.api.read()[0]; entry.exportedAt='2026-09-12T12:00:00Z';
+  c.api.markImported(entry.id); c.api.loadEntry(c.api.read()[0]); c.element('amount').value='200';
+  c.api.validateAndSave({preventDefault(){}});
+  assert.equal(c.api.read()[0].changedSinceExport,true);
+  c.api.clearImported(); assert.equal(c.api.read().length,1);
+  c.api.markUnexported(entry.id); assert.equal(c.api.read()[0].exportedAt,null);
+});
+
+test('linked reimbursements update, retain identity when edited and delete with the expense', () => {
+  const c=capture(); c.configure('ubsg','CHF'); c.api.chooseUbs(true); c.api.validateAndSave({preventDefault(){}});
+  const parent=c.api.read()[0], child=c.api.read()[1];
+  c.api.loadEntry(parent); c.element('amount').value='200'; c.api.validateAndSave({preventDefault(){}});
+  assert.equal(c.api.read()[1].amount,'86.00'); assert.equal(c.api.read()[1].id,child.id);
+  c.api.loadEntry(c.api.read()[1]); c.element('memo').value='Reviewed'; c.api.validateAndSave({preventDefault(){}});
+  assert.equal(c.api.read()[1].generatedFrom,parent.id);
+  c.api.deleteEntry(parent.id); assert.equal(c.api.read().length,0);
 });
