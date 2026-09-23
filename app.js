@@ -128,18 +128,50 @@
         $("gio-share").value = String(state.config.gioSharePercent ?? 57);
       }
       function renderEntries() {
-        const sorted = [...state.entries].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+        const sorted = [...state.entries].sort((a, b) => b.date.localeCompare(a.date) || String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
         const pendingCount = state.entries.filter((item) => !item.exportedAt).length;
         $("draft-count").textContent = String(pendingCount);
         $("nav-draft-count").textContent = String(pendingCount);
         $("export-csv").disabled = pendingCount === 0;
-        $("export-csv").textContent = pendingCount ? `Export ${pendingCount} draft${pendingCount === 1 ? "" : "s"} · CSV` : "No drafts to export";
+        $("export-csv").textContent = pendingCount ? `Export all ${pendingCount} unexported draft${pendingCount === 1 ? "" : "s"} · CSV` : "No drafts to export";
         $("clear-exported").disabled = !state.entries.some((item) => item.importedAt && !item.changedSinceExport);
-        $("entries").innerHTML = sorted.length ? sorted.map((entry) => {
-          const amountText = entry.currency === "CHF" ? money(entry.amount, "CHF") : `${money(entry.amount, "EUR")} · ${entry.chfAmount ? money(entry.chfAmount, "CHF") : "CHF rate needed"}`;
-          const destination = entry.type === "transfer" ? ` → ${escapeHtml(account(entry.toAccountId)?.label || entry.toAccountId)}` : "";
-          return `<article class="entry"><div><strong>${escapeHtml(entry.title || "Transfer")} <span class="badge">${escapeHtml(entry.type)}</span>${entry.exportedAt ? `<span class="badge">${entry.changedSinceExport ? 'Changed since download' : entry.importedAt ? 'Imported' : 'Downloaded — confirm import'}</span>` : ""}</strong><small>${escapeHtml(entry.date)} · ${escapeHtml(account(entry.accountId)?.label || entry.accountId)}${destination}${entry.memo ? ` · ${escapeHtml(entry.memo)}` : ""}${entry.generatedFrom ? " · Linked reimbursement" : state.entries.some(item => item.generatedFrom === entry.id) ? " · Has linked reimbursement" : ""}</small><div class="entry-amount">${escapeHtml(amountText)}</div></div><div class="entry-actions"><button class="small" type="button" data-edit="${escapeHtml(entry.id)}">Edit</button>${!entry.generatedFrom ? `<button class="small" type="button" data-save-preset="${escapeHtml(entry.id)}">Save quick transaction</button>` : ""}${entry.exportedAt && !entry.changedSinceExport && !entry.importedAt ? `<button class="small" type="button" data-imported="${escapeHtml(entry.id)}">Mark imported</button>` : ""}${entry.exportedAt ? `<button class="small" type="button" data-unexport="${escapeHtml(entry.id)}">Mark unexported</button>` : ""}<button class="small danger" type="button" data-delete="${escapeHtml(entry.id)}">Delete</button></div></article>`;
-        }).join("") : '<div class="empty-state"><span class="type-icon" aria-hidden="true">▤</span><h3>A little less to remember.</h3><p>Capture an expense, refund, or transfer.<br>Your drafts will be waiting here.</p><button type="button" data-start-capture class="primary">Capture a transaction</button></div>';
+        const query = $("draft-search").value.trim().toLocaleLowerCase();
+        const groupBy = $("draft-group-by").value;
+        const matches = sorted.filter((entry) => {
+          const source = account(entry.accountId), destination = account(entry.toAccountId);
+          return [entry.title, entry.memo, entry.date, entry.amount, entry.chfAmount, entry.currency,
+            source?.label, source?.path, destination?.label, destination?.path].some(value => String(value || "").toLocaleLowerCase().includes(query));
+        });
+        $("draft-view-count").textContent = query ? `Showing ${matches.length} of ${sorted.length} drafts` : "";
+        const card = (entry) => {
+          const source = account(entry.accountId), destination = account(entry.toAccountId);
+          const linked = entry.generatedFrom ? "Linked reimbursement" : state.entries.some(item => item.generatedFrom === entry.id) ? "Has linked reimbursement" : "";
+          const actions = `${!entry.generatedFrom ? `<button class="small" type="button" data-save-preset="${escapeHtml(entry.id)}">Save quick transaction</button>` : ""}${entry.exportedAt ? `<button class="small" type="button" data-unexport="${escapeHtml(entry.id)}">Mark unexported</button>` : ""}<button class="small danger" type="button" data-delete="${escapeHtml(entry.id)}">Delete</button>`;
+          return `<article class="entry"><div class="entry-main"><div><strong>${escapeHtml(entry.title || "Transfer")}</strong><span class="entry-kind">${escapeHtml(entry.type)}</span><small>${escapeHtml(entry.date)} · ${escapeHtml(source?.label || entry.accountId)}${entry.type === "transfer" ? ` → ${escapeHtml(destination?.label || entry.toAccountId)}` : ""}${entry.memo ? ` · ${escapeHtml(entry.memo)}` : ""}${linked ? ` · ${linked}` : ""}</small></div><div class="entry-amount">${escapeHtml(money(entry.amount, entry.currency))}${entry.currency === "EUR" ? `<small>${entry.chfAmount ? escapeHtml(money(entry.chfAmount, "CHF")) : "CHF rate needed"}</small>` : ""}</div></div><div class="entry-actions"><button class="small" type="button" data-edit="${escapeHtml(entry.id)}">Edit</button>${entry.exportedAt && !entry.changedSinceExport && !entry.importedAt ? `<button class="small" type="button" data-imported="${escapeHtml(entry.id)}">Mark imported</button>` : ""}<details class="entry-more"><summary>More</summary><div class="entry-more-actions">${actions}</div></details></div></article>`;
+        };
+        const grouped = (items) => {
+          if (groupBy !== "account" && groupBy !== "category") return items.map(card).join("");
+          const groups = new Map();
+          for (const entry of items) {
+            const key = groupBy === "account" ? entry.accountId : entry.type === "transfer" ? "transfer" : `category:${String(entry.title || "").trim().toLocaleLowerCase()}`;
+            const label = groupBy === "account" ? account(entry.accountId)?.label || entry.accountId : entry.type === "transfer" ? "Transfers" : entry.title || "Uncategorized";
+            if (!groups.has(key)) groups.set(key, {label, entries:[]});
+            groups.get(key).entries.push(entry);
+          }
+          return [...groups.values()].sort((a, b) => a.label.localeCompare(b.label)).map(group => `<details class="draft-group" open><summary>${escapeHtml(group.label)} <span class="draft-count">${group.entries.length}</span></summary>${group.entries.map(card).join("")}</details>`).join("");
+        };
+        const sections = [
+          ["attention", "Needs attention", entry => Boolean(entry.exportedAt && entry.changedSinceExport)],
+          ["pending", "To export", entry => !entry.exportedAt],
+          ["downloaded", "Downloaded — confirm import", entry => Boolean(entry.exportedAt && !entry.changedSinceExport && !entry.importedAt)],
+          ["imported", "Imported", entry => Boolean(entry.exportedAt && !entry.changedSinceExport && entry.importedAt)]
+        ];
+        $("entries").innerHTML = !sorted.length ? '<div class="empty-state"><span class="type-icon" aria-hidden="true">▤</span><h3>A little less to remember.</h3><p>Capture an expense, refund, or transfer.<br>Your drafts will be waiting here.</p><button type="button" data-start-capture class="primary">Capture a transaction</button></div>'
+          : !matches.length ? '<p class="draft-empty">No drafts match your search.</p>'
+          : sections.map(([key, title, includes]) => {
+            const items = matches.filter(includes);
+            return items.length ? `<details class="draft-section draft-${key}" ${key === "imported" && !query ? "" : "open"}><summary>${title} <span class="draft-count">${items.length}</span></summary><div class="draft-section-body">${grouped(items)}</div></details>` : "";
+          }).join("");
       }
       function updateTypeUI() {
         document.querySelectorAll("[data-type]").forEach((button) => { button.classList.toggle("selected", button.dataset.type === type); button.setAttribute("aria-pressed", String(button.dataset.type === type)); });
@@ -440,6 +472,8 @@
       $("new-entry").addEventListener("click", resetForm);
       $("backup-data").addEventListener("click", backupData); $("restore-data").addEventListener("click", () => $("restore-file").click()); $("restore-file").addEventListener("change", (event) => restoreData(event.target.files?.[0]));
       $("clear-exported").addEventListener("click", clearImported);
+      $("draft-search").addEventListener("input", renderEntries);
+      $("draft-group-by").addEventListener("change", renderEntries);
       $("entries").addEventListener("click", event => {
         for (const [attribute, action] of [["edit", id=>loadEntry(state.entries.find(item=>item.id===id))],["save-preset",id=>savePreset(state.entries.find(item=>item.id===id))],["unexport",markUnexported],["imported",markImported],["delete",deleteEntry]]) {
           const button=event.target.closest(`[data-${attribute}]`); if(button) action(button.getAttribute(`data-${attribute}`));

@@ -22,6 +22,14 @@ const root=path.join(__dirname,'..');
   await page.locator('#amount').fill('100');await click('[data-step="amount"] [data-next]');await page.locator('#memo').fill('Browser test');await click('#save-entry');await click('[data-ubs-split="yes"]');
   await page.locator('[data-step="done"]').waitFor({state:'visible'});
   await click('[data-nav="drafts"]');assert.equal(await page.locator('.entry').count(),2);
+  await page.locator('#draft-search').fill('no matching draft');
+  assert.equal(await page.locator('.entry').count(),0);
+  assert.match(await page.locator('#export-csv').innerText(),/all 2 unexported drafts/);
+  await page.locator('#draft-search').fill('');
+  await page.locator('#draft-group-by').selectOption('account');
+  assert.ok(await page.locator('.draft-group').count()>0);
+  await page.locator('#draft-group-by').selectOption('none');
+  await click('.entry:has([data-save-preset]) .entry-more summary');
   await click('[data-save-preset]');
   await click('.entry:has([data-save-preset]) [data-edit]');
   // Editing through the review's Back returns to Amount via Note.

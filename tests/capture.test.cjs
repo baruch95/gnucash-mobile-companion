@@ -18,7 +18,7 @@ function capture() {
     window:{scrollTo(){}}, clearTimeout(){}, setTimeout(){}, console,
   });
   const end = script.indexOf('      document.querySelectorAll("[data-type]").forEach((button) => button.addEventListener');
-  vm.runInContext(script.slice(0, end) + '\n globalThis.api = { splitRows, markImported, deleteEntry, clearImported, fetchFx, invalidateFx, needsFx, stepsForType, canOfferUbsSplit, validateAndSave, loadEntry, resetForm, markUnexported, savePreset, applyPreset, deletePreset, renamePreset, ubsSplitDetails, chooseUbs:(value)=>{ubsSplitChoice=value;currentStep="ubs-split"}, startExpense:(accountId)=>{resetForm();type="expense";spendingClass="Necessary";$("account").value=accountId;currentStep="account"}, setShares:(nico,gio)=>{state.config.nicoSharePercent=nico;state.config.gioSharePercent=gio}, setQuickAmount:(value)=>{$("quick-amount").value=value}, read:()=>state.entries, presets:()=>state.presets, step:()=>currentStep }; })();', context);
+  vm.runInContext(script.slice(0, end) + '\n globalThis.api = { splitRows, renderEntries, markImported, deleteEntry, clearImported, fetchFx, invalidateFx, needsFx, stepsForType, canOfferUbsSplit, validateAndSave, loadEntry, resetForm, markUnexported, savePreset, applyPreset, deletePreset, renamePreset, ubsSplitDetails, chooseUbs:(value)=>{ubsSplitChoice=value;currentStep="ubs-split"}, startExpense:(accountId)=>{resetForm();type="expense";spendingClass="Necessary";$("account").value=accountId;currentStep="account"}, setShares:(nico,gio)=>{state.config.nicoSharePercent=nico;state.config.gioSharePercent=gio}, setQuickAmount:(value)=>{$("quick-amount").value=value}, read:()=>state.entries, presets:()=>state.presets, step:()=>currentStep }; })();', context);
   const configure = (accountId, currency, type = 'expense', to = '') => {
     // Set through loadEntry so the same restoration path used by real saved drafts is exercised.
     context.api.loadEntry({id:'test-id',type,spendingClass:'Necessary',title:'Food',date:'2026-09-06',amount:'100',currency,accountId,toAccountId:to,fxRate:null,chfAmount:currency === 'CHF' ? '100' : null});
@@ -214,4 +214,27 @@ test('linked reimbursements update, retain identity when edited and delete with 
   c.api.loadEntry(c.api.read()[1]); c.element('memo').value='Reviewed'; c.api.validateAndSave({preventDefault(){}});
   assert.equal(c.api.read()[1].generatedFrom,parent.id);
   c.api.deleteEntry(parent.id); assert.equal(c.api.read().length,0);
+});
+
+test('draft search and grouping do not change the export set', () => {
+  const c=capture();
+  const base={createdAt:'2026-09-23T10:00:00Z',date:'2026-09-23',type:'expense',spendingClass:'Necessary',currency:'CHF',amount:'10.00',accountId:'revn2'};
+  c.api.read().push(
+    {...base,id:'food',title:'Food',memo:'Lunch'},
+    {...base,id:'transport',title:'Transport',memo:'Train'},
+    {...base,id:'downloaded',title:'Food',memo:'Shop',exportedAt:'2026-09-23T11:00:00Z'},
+    {...base,id:'imported',title:'Food',memo:'Dinner',exportedAt:'2026-09-23T11:00:00Z',importedAt:'2026-09-23T12:00:00Z'},
+    {...base,id:'changed',title:'Food',memo:'Changed',exportedAt:'2026-09-23T11:00:00Z',changedSinceExport:true}
+  );
+  c.element('draft-group-by').value='account';c.api.renderEntries();
+  assert.match(c.element('entries').innerHTML,/Needs attention/);
+  assert.match(c.element('entries').innerHTML,/Downloaded — confirm import/);
+  assert.match(c.element('entries').innerHTML,/draft-imported" ><summary>/);
+  assert.match(c.element('entries').innerHTML,/<summary>REV-N2 <span class="draft-count">2<\/span>/);
+  c.element('draft-search').value='Lunch';c.api.renderEntries();
+  assert.equal(c.element('draft-view-count').textContent,'Showing 1 of 5 drafts');
+  assert.doesNotMatch(c.element('entries').innerHTML,/Train/);
+  assert.equal(c.element('export-csv').textContent,'Export all 2 unexported drafts · CSV');
+  c.element('draft-search').value='';c.element('draft-group-by').value='category';c.api.renderEntries();
+  assert.match(c.element('entries').innerHTML,/<summary>Food <span class="draft-count">1<\/span>/);
 });

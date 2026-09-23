@@ -116,6 +116,11 @@
 
     <section class="card hidden" data-view="drafts" aria-labelledby="draft-heading">
       <p class="eyebrow">Local ledger</p><h2 id="draft-heading">Drafts <span id="draft-count" class="badge">0</span></h2>
+      <div class="draft-controls">
+        <label>Search drafts<input id="draft-search" type="search" autocomplete="off" placeholder="Category, memo, account, date, amount" /></label>
+        <label>Group within status<select id="draft-group-by"><option value="none">No grouping</option><option value="account">Account</option><option value="category">Category</option></select></label>
+      </div>
+      <p id="draft-view-count" class="hint" role="status"></p>
       <p id="draft-status" class="status" role="status"></p><div id="entries"><p class="hint">No drafts yet.</p></div>
       <div class="divider"></div>
       <div class="actions"><button type="button" id="export-csv" class="primary">Download CSV</button><button type="button" id="clear-exported">Clear imported</button></div>
