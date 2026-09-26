@@ -7,7 +7,7 @@ const path=require('node:path');
 const root=path.join(__dirname,'..');
 (async()=>{
  const server=http.createServer((req,res)=>{
-  const name=req.url==='/'?'index.html':req.url.slice(1);
+  const name=new URL(req.url,'http://127.0.0.1').pathname.slice(1) || 'index.html';
   if(!['index.html','app.js','core.js','storage.js','styles.css'].includes(name)){res.writeHead(404);return res.end();}
   res.setHeader('Content-Type',name.endsWith('.js')?'application/javascript':name.endsWith('.css')?'text/css':'text/html');res.end(fs.readFileSync(path.join(root,name)));
  });
@@ -57,6 +57,14 @@ const root=path.join(__dirname,'..');
   await page.waitForFunction(()=>document.querySelector('#storage-status').textContent.includes('not saved'));
   assert.equal(await page.locator('#quick-amount').inputValue(),'30');assert.equal(await page.locator('[data-step="done"]').isVisible(),false);
   await page.reload();await click('[data-nav="drafts"]');assert.equal(await page.locator('.entry').count(),2);
+  const bulkDownloadPromise=page.waitForEvent('download');await click('#export-csv');await bulkDownloadPromise;
+  await page.locator('#draft-search').fill('no matching draft');
+  assert.equal(await page.locator('.entry').count(),0);
+  await click('#mark-all-imported');
+  state=await page.evaluate(()=>JSON.parse(localStorage.getItem('gnucash-mobile-capture-v1')));
+  assert.equal(state.entries.filter(entry=>entry.importedAt).length,2);
+  assert.equal(await page.locator('#mark-all-imported').isDisabled(),true);
+  await page.locator('#draft-search').fill('');
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
   if(process.env.SCREENSHOT_PATH) await page.screenshot({path:process.env.SCREENSHOT_PATH,fullPage:true});
   // Invalid backups never replace the stored collection.
@@ -74,6 +82,6 @@ const root=path.join(__dirname,'..');
   await page.waitForFunction(()=>!document.querySelector('#fetch-fx').disabled);assert.equal(await page.locator('#fx-rate').inputValue(),'0.95');
   await click('[data-step="fx"] [data-next]');await click('#save-entry');await page.locator('[data-step="done"]').waitFor({state:'visible'});
   assert.deepEqual(errors,[]);
-  console.log('PASS: mobile capture, linked edit, CSV download/import lifecycle, backup restore, quick capture, reload, failed storage, no horizontal overflow, invalid backup rejection, stale FX response rejection.');
+  console.log('PASS: mobile capture, linked edit, CSV download/import lifecycle, bulk import with hidden drafts, backup restore, quick capture, reload, failed storage, no horizontal overflow, invalid backup rejection, stale FX response rejection.');
  } finally {await browser.close();await new Promise(resolve=>server.close(resolve));}
 })().catch(error=>{console.error(error);process.exitCode=1;});
