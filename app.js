@@ -134,6 +134,9 @@
         $("nav-draft-count").textContent = String(pendingCount);
         $("export-csv").disabled = pendingCount === 0;
         $("export-csv").textContent = pendingCount ? `Export all ${pendingCount} unexported draft${pendingCount === 1 ? "" : "s"} · CSV` : "No drafts to export";
+        const downloadedCount = state.entries.filter((item) => item.exportedAt && !item.changedSinceExport && !item.importedAt).length;
+        $("mark-all-imported").disabled = downloadedCount === 0;
+        $("mark-all-imported").textContent = `Mark all ${downloadedCount} downloaded as imported`;
         $("clear-exported").disabled = !state.entries.some((item) => item.importedAt && !item.changedSinceExport);
         const query = $("draft-search").value.trim().toLocaleLowerCase();
         const groupBy = $("draft-group-by").value;
@@ -433,6 +436,14 @@
         if (!confirm("Have you successfully imported this exact downloaded draft into GnuCash?")) return;
         entry.importedAt = new Date().toISOString(); persist(); renderEntries();
       }
+      function markAllImported() {
+        const downloaded = state.entries.filter(item => item.exportedAt && !item.changedSinceExport && !item.importedAt);
+        if (!downloaded.length) return;
+        if (!confirm(`Have you successfully imported all ${downloaded.length} downloaded drafts into GnuCash? This includes drafts hidden by search.`)) return;
+        const importedAt = new Date().toISOString();
+        state.entries = state.entries.map(item => item.exportedAt && !item.changedSinceExport && !item.importedAt ? {...item, importedAt} : item);
+        persist(); renderEntries(); setStatus(`Marked ${downloaded.length} downloaded draft${downloaded.length === 1 ? "" : "s"} as imported.`, "good");
+      }
       function deleteEntry(id) {
         const entry = state.entries.find(item=>item.id===id); if(!entry) return;
         const children = state.entries.filter(item=>item.generatedFrom===id);
@@ -471,6 +482,7 @@
       $("fetch-fx").addEventListener("click", fetchFx); $("export-csv").addEventListener("click", exportCsv); $("save-settings").addEventListener("click", saveSettings);
       $("new-entry").addEventListener("click", resetForm);
       $("backup-data").addEventListener("click", backupData); $("restore-data").addEventListener("click", () => $("restore-file").click()); $("restore-file").addEventListener("change", (event) => restoreData(event.target.files?.[0]));
+      $("mark-all-imported").addEventListener("click", markAllImported);
       $("clear-exported").addEventListener("click", clearImported);
       $("draft-search").addEventListener("input", renderEntries);
       $("draft-group-by").addEventListener("change", renderEntries);

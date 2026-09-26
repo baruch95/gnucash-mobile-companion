@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const vm = require('node:vm');
 const path = require('node:path');
 
-function capture() {
+function capture(confirmAction = () => true) {
   const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
   const script = fs.readFileSync(path.join(__dirname, '..', 'app.js'), 'utf8');
   const elements = new Map();
@@ -14,11 +14,11 @@ function capture() {
   };
   const context = vm.createContext({
     document:{getElementById:element, querySelectorAll:()=>[], querySelector:()=>null},
-    localStorage:{getItem:()=>null, setItem(){}}, crypto:{randomUUID:()=> require('node:crypto').randomUUID()}, CaptureCore:require('../core.js'), CaptureStorage:require('../storage.js'), confirm:()=>true,
+    localStorage:{getItem:()=>null, setItem(){}}, crypto:{randomUUID:()=> require('node:crypto').randomUUID()}, CaptureCore:require('../core.js'), CaptureStorage:require('../storage.js'), confirm:confirmAction,
     window:{scrollTo(){}}, clearTimeout(){}, setTimeout(){}, console,
   });
   const end = script.indexOf('      document.querySelectorAll("[data-type]").forEach((button) => button.addEventListener');
-  vm.runInContext(script.slice(0, end) + '\n globalThis.api = { splitRows, renderEntries, markImported, deleteEntry, clearImported, fetchFx, invalidateFx, needsFx, stepsForType, canOfferUbsSplit, validateAndSave, loadEntry, resetForm, markUnexported, savePreset, applyPreset, deletePreset, renamePreset, ubsSplitDetails, chooseUbs:(value)=>{ubsSplitChoice=value;currentStep="ubs-split"}, startExpense:(accountId)=>{resetForm();type="expense";spendingClass="Necessary";$("account").value=accountId;currentStep="account"}, setShares:(nico,gio)=>{state.config.nicoSharePercent=nico;state.config.gioSharePercent=gio}, setQuickAmount:(value)=>{$("quick-amount").value=value}, read:()=>state.entries, presets:()=>state.presets, step:()=>currentStep }; })();', context);
+  vm.runInContext(script.slice(0, end) + '\n globalThis.api = { splitRows, renderEntries, markImported, markAllImported, deleteEntry, clearImported, fetchFx, invalidateFx, needsFx, stepsForType, canOfferUbsSplit, validateAndSave, loadEntry, resetForm, markUnexported, savePreset, applyPreset, deletePreset, renamePreset, ubsSplitDetails, chooseUbs:(value)=>{ubsSplitChoice=value;currentStep="ubs-split"}, startExpense:(accountId)=>{resetForm();type="expense";spendingClass="Necessary";$("account").value=accountId;currentStep="account"}, setShares:(nico,gio)=>{state.config.nicoSharePercent=nico;state.config.gioSharePercent=gio}, setQuickAmount:(value)=>{$("quick-amount").value=value}, read:()=>state.entries, presets:()=>state.presets, step:()=>currentStep }; })();', context);
   const configure = (accountId, currency, type = 'expense', to = '') => {
     // Set through loadEntry so the same restoration path used by real saved drafts is exercised.
     context.api.loadEntry({id:'test-id',type,spendingClass:'Necessary',title:'Food',date:'2026-09-06',amount:'100',currency,accountId,toAccountId:to,fxRate:null,chfAmount:currency === 'CHF' ? '100' : null});
@@ -204,6 +204,31 @@ test('editing downloaded drafts flags corrections and blocks imported cleanup', 
   assert.equal(c.api.read()[0].changedSinceExport,true);
   c.api.clearImported(); assert.equal(c.api.read().length,1);
   c.api.markUnexported(entry.id); assert.equal(c.api.read()[0].exportedAt,null);
+});
+
+test('bulk import confirms and marks every eligible downloaded draft, including hidden drafts', () => {
+  let approved = false;
+  const c = capture(() => approved);
+  const base = {date:'2026-09-23',type:'expense',spendingClass:'Necessary',title:'Food',currency:'CHF',amount:'10.00',accountId:'revn2'};
+  c.api.read().push(
+    {...base,id:'visible',memo:'Visible',exportedAt:'2026-09-23T11:00:00Z'},
+    {...base,id:'hidden',memo:'Hidden',exportedAt:'2026-09-23T11:00:00Z'},
+    {...base,id:'changed',exportedAt:'2026-09-23T11:00:00Z',changedSinceExport:true},
+    {...base,id:'imported',exportedAt:'2026-09-23T11:00:00Z',importedAt:'2026-09-23T12:00:00Z'},
+    {...base,id:'pending'}
+  );
+  c.element('draft-search').value = 'Visible';
+  c.api.renderEntries();
+  assert.equal(c.element('mark-all-imported').textContent,'Mark all 2 downloaded as imported');
+  c.api.markAllImported();
+  assert.equal(c.api.read().filter(item => item.importedAt).length,1);
+  approved = true;
+  c.api.markAllImported();
+  assert.ok(c.api.read().find(item => item.id === 'visible').importedAt);
+  assert.equal(c.api.read().find(item => item.id === 'visible').importedAt,c.api.read().find(item => item.id === 'hidden').importedAt);
+  assert.equal(c.api.read().find(item => item.id === 'changed').importedAt,undefined);
+  assert.equal(c.api.read().find(item => item.id === 'pending').importedAt,undefined);
+  assert.equal(c.element('mark-all-imported').disabled,true);
 });
 
 test('linked reimbursements update, retain identity when edited and delete with the expense', () => {
